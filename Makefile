@@ -1,11 +1,10 @@
 TARGET	= udcd_uvc
-OBJS	= main.o log.o draw.o font_data.o
+OBJS	= main.o conversion.o log.o draw.o font_data.o
 
-LIBS	= -ltaihenForKernel_stub -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
+LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
 	-lSceSysmemForKernel_stub -lSceThreadmgrForDriver_stub -lSceCpuForKernel_stub \
-	-lSceCpuForDriver_stub -lSceUartForKernel_stub -lScePervasiveForDriver_stub \
-	-lScePowerForDriver_stub -lSceIofilemgrForDriver_stub -lSceUdcdForDriver_stub \
-	-lSceDisplayForDriver_stub
+	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub -lSceDisplayForDriver_stub \
+	-lSceIofilemgrForDriver_stub
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
@@ -13,6 +12,7 @@ AS	= $(PREFIX)-as
 OBJCOPY	= $(PREFIX)-objcopy
 CFLAGS	= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork
 ASFLAGS	=
+DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx
 
@@ -23,13 +23,18 @@ all: $(TARGET).skprx
 	vita-elf-create -e $(TARGET).yml $< $@
 
 $(TARGET).elf: $(OBJS)
-	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(LIBS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 .PHONY: clean send
 
 clean:
-	@rm -rf $(TARGET).skprx $(TARGET).velf $(TARGET).elf $(OBJS)
+	@rm -rf $(TARGET).skprx $(TARGET).velf $(TARGET).elf $(OBJS) $(DEPS)
 
 send: $(TARGET).skprx
 	curl -T $(TARGET).skprx ftp://$(PSVITAIP):1337/ux0:/data/tai/kplugin.skprx
 	@echo "Sent."
+
+-include $(DEPS)

@@ -3,8 +3,8 @@
 #include <psp2kern/kernel/sysmem.h>
 #include <psp2kern/kernel/cpu.h>
 #include <psp2kern/udcd.h>
-#include <taihen.h>
 #include "usb_descriptors.h"
+#include "conversion.h"
 #include "uvc.h"
 #include "log.h"
 #include "draw.h"
@@ -80,6 +80,8 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
+	ksceKernelCpuDcacheAndL2WritebackRange(data, size);
+
 	return ksceUdcdReqSend(&req);
 }
 
@@ -101,7 +103,51 @@ static int usb_ep0_req_recv(void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
+	ksceKernelCpuDcacheAndL2InvalidateRange(data, size);
+
 	return ksceUdcdReqRecv(&req);
+}
+
+static void bulk_on_complete(struct SceUdcdDeviceRequest *req)
+{
+	//LOG("Transmitted: 0x%04X, ret code: 0x%02X\n",
+	//	req->transmitted, req->returnCode);
+}
+
+static int usb_bulk_video_req_send(const void *data, unsigned int size)
+{
+	static SceUdcdDeviceRequest reqs[32];
+	static int n = 0;
+	int idx = n++ % (sizeof(reqs) / sizeof(*reqs));
+
+	reqs[idx] = (SceUdcdDeviceRequest){
+		.endpoint = &endpoints[3],
+		.data = (void *)data,
+		.unk = 0,
+		.size = size,
+		.isControlRequest = 0,
+		.onComplete = bulk_on_complete,
+		.transmitted = 0,
+		.returnCode = 0,
+		.next = NULL,
+		.unused = NULL,
+		.physicalAddress = NULL
+	};
+
+	ksceKernelCpuDcacheAndL2WritebackRange(data, size);
+
+	int ret = ksceUdcdReqSend(&reqs[idx]);
+
+	if (ret != 0)
+		LOG("Bulk transfer error 0x%08X\n", ret);
+
+	/*
+	 * FIXME: Ugly hack
+	 * TODO: Proper request buffering/queuing
+	 */
+	ksceKernelDelayThread(1000);
+
+	return ret;
 }
 
 static void uvc_handle_interface_ctrl_req(const SceUdcdEP0DeviceRequest *req)
@@ -131,7 +177,7 @@ static void uvc_handle_output_terminal_req(const SceUdcdEP0DeviceRequest *req)
 
 static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 {
-	/* LOG("  uvc_handle_video_streaming_req\n"); */
+	/* LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest); */
 
 	switch (req->wValue >> 8) {
 	case UVC_VS_PROBE_CONTROL:
@@ -179,7 +225,7 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 			uvc_probe_control_setting[6] = uvc_probe_control_setting_read[6];
 			uvc_probe_control_setting[7] = uvc_probe_control_setting_read[7];
 
-                        /* TODO: Start streaming */
+                        /* TODO: Start streaming properly */
                         stream = 1;
 			break;
 		}
@@ -187,14 +233,40 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 	}
 }
 
+static void uvc_handle_video_abort(void)
+{
+	if (stream) {
+		stream = 0;
+
+		ksceUdcdReqCancelAll(&endpoints[3]);
+		ksceUdcdClearFIFO(&endpoints[3]);
+	}
+}
+
+static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
+{
+	switch (req->wValue) {
+	case USB_FEATURE_ENDPOINT_HALT:
+		if ((req->wIndex & USB_ENDPOINT_ADDRESS_MASK) ==
+		    endpoints[3].endpointNumber) {
+			uvc_handle_video_abort();
+		}
+		break;
+	}
+}
+
 static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequest *req)
 {
-	/* LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
+	int ret = 0;
+
+	/*
+	LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
 	LOG("  request: %x type: %x wValue: %x wIndex: %x wLength: %x\n",
-		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);*/
+		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);
+	*/
 
 	if (arg < 0)
-		return -1;
+		ret = -1;
 
 	switch (req->bmRequestType) {
 	case USB_CTRLTYPE_DIR_DEVICE2HOST |
@@ -228,17 +300,27 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 			break;
 		}
 		break;
+	case USB_CTRLTYPE_DIR_HOST2DEVICE |
+	     USB_CTRLTYPE_TYPE_STANDARD |
+	     USB_CTRLTYPE_REC_ENDPOINT: /* 0x02 */
+		switch (req->bRequest) {
+		case USB_REQ_CLEAR_FEATURE:
+			uvc_handle_clear_feature(req);
+			break;
+		}
+		break;
 	case USB_CTRLTYPE_DIR_DEVICE2HOST |
 	     USB_CTRLTYPE_TYPE_STANDARD |
 	     USB_CTRLTYPE_REC_DEVICE: /* 0x80 */
 		switch (req->wValue >> 8) {
 		case 0x0A: /* USB_DT_DEBUG */
-			return -1;
+			ret = -1;
+			break;
 		}
 		break;
 	}
 
-	return 0;
+	return ret;
 }
 
 static int uvc_udcd_change_setting(int interfaceNumber, int alternateSetting)
@@ -261,6 +343,8 @@ static int uvc_udcd_attach(int usb_version)
 static void uvc_udcd_detach(void)
 {
 	LOG("uvc_udcd_detach\n");
+
+	uvc_handle_video_abort();
 }
 
 static void uvc_udcd_configure(int usb_version, int desc_count, SceUdcdInterfaceSettings *settings)
@@ -305,6 +389,156 @@ static SceUdcdDriver uvc_udcd_driver = {
 	0,
 	NULL
 };
+
+#define PAYLOAD_HEADER_SIZE	12
+#define PAYLOAD_TRANSFER_SIZE	0x4000
+#define PACKET_SIZE		0x200
+
+static unsigned int uvc_payload_transfer(const unsigned char *data,
+					 unsigned int transfer_size,
+					 int fid, int eof,
+					 unsigned int *written)
+{
+	static unsigned char packet[PACKET_SIZE] __attribute__((aligned(128)));
+
+	int ret;
+	unsigned int pend_size = transfer_size;
+	unsigned int offset = 0;
+
+	unsigned char payload_header[PAYLOAD_HEADER_SIZE] = {
+		PAYLOAD_HEADER_SIZE,                /* Header Length */
+		UVC_STREAM_EOH,                     /* Bit field header field */
+		0x00, 0x00, 0x00, 0x00,             /* Presentation time stamp field */
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00  /* Source clock reference field */
+	};
+
+	if (fid)
+		payload_header[1] |= UVC_STREAM_FID;
+	if (eof)
+		payload_header[1] |= UVC_STREAM_EOF;
+
+	/*
+	 * The first packet of the transfer includes the payload header.
+	 */
+	memcpy(&packet[0], payload_header, PAYLOAD_HEADER_SIZE);
+
+	if (transfer_size >= PACKET_SIZE) {
+		memcpy(&packet[PAYLOAD_HEADER_SIZE], &data[offset],
+		       PACKET_SIZE - PAYLOAD_HEADER_SIZE);
+		ret = usb_bulk_video_req_send(packet, PACKET_SIZE);
+		if (ret < 0)
+			return ret;
+
+		pend_size -= PACKET_SIZE;
+		offset += PACKET_SIZE - PAYLOAD_HEADER_SIZE;
+	} else {
+		memcpy(&packet[PAYLOAD_HEADER_SIZE], &data[offset],
+		       transfer_size - PAYLOAD_HEADER_SIZE);
+		ret = usb_bulk_video_req_send(packet, transfer_size);
+		if (ret < 0)
+			return ret;
+
+		pend_size -= transfer_size;
+		offset += transfer_size - PAYLOAD_HEADER_SIZE;
+	}
+
+	while (pend_size >= PACKET_SIZE) {
+		memcpy(packet, &data[offset], PACKET_SIZE);
+		ret = usb_bulk_video_req_send(packet, PACKET_SIZE);
+		if (ret < 0)
+			return ret;
+
+		pend_size -= PACKET_SIZE;
+		offset += PACKET_SIZE;
+	}
+
+	if (pend_size > 0) {
+		memcpy(packet, &data[offset], pend_size);
+		ret = usb_bulk_video_req_send(packet, pend_size);
+		if (ret < 0)
+			return ret;
+
+		offset += pend_size;
+	}
+
+	if (written)
+		*written = offset;
+
+	return 0;
+}
+
+static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned int size)
+{
+	int ret;
+	unsigned int written;
+	unsigned int offset = 0;
+	unsigned int pend_size = size;
+
+	while (pend_size + PAYLOAD_HEADER_SIZE > PAYLOAD_TRANSFER_SIZE) {
+		ret = uvc_payload_transfer(&data[offset],
+					   PAYLOAD_TRANSFER_SIZE,
+					   fid, 0, &written);
+		if (ret < 0)
+			return ret;
+
+		pend_size -= written;
+		offset += written;
+	}
+
+	if (pend_size > 0) {
+		ret = uvc_payload_transfer(&data[offset],
+					   pend_size + PAYLOAD_HEADER_SIZE,
+					   fid, 1, &written);
+		if (ret < 0)
+			return ret;
+
+	}
+
+	return 0;
+}
+
+#define VIDEO_FRAME_WIDTH	640
+#define VIDEO_FRAME_HEIGHT	480
+#define RGB_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3)
+#define YUY2_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 2)
+static unsigned char rgb_frame[RGB_VIDEO_FRAME_SIZE];
+static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
+
+int uvc_start(void);
+
+static int usb_thread(SceSize args, void *argp)
+{
+	int ret;
+	int fid = 0;
+
+	stream = 0;
+	uvc_start();
+
+	for (int i = 0; i < VIDEO_FRAME_HEIGHT; i++) {
+		for (int j = 0; j < VIDEO_FRAME_WIDTH; j++) {
+			rgb_frame[0 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 255;
+			rgb_frame[1 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 0;
+			rgb_frame[2 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 0;
+		}
+	}
+
+	r8g8b8_to_yuy2(rgb_frame, yuy2_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
+
+	while (usb_thread_run) {
+		if (stream) {
+			ret = uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
+			if (ret < 0) {
+				LOG("Error sending frame: 0x%08X\n", ret);
+				stream = 0;
+			}
+
+			fid ^= 1;
+		}
+		ksceKernelDelayThread((1000 * 1000) / 15);
+	}
+
+	return 0;
+}
 
 int uvc_start(void)
 {
@@ -362,224 +596,6 @@ int uvc_stop(void)
 	ksceUdcdStart("USBDeviceControllerDriver", 0, NULL);
 	ksceUdcdStart("USB_MTP_Driver", 0, NULL);
 	ksceUdcdActivate(0x4E4);
-
-	return 0;
-}
-
-void bulk_on_complete(struct SceUdcdDeviceRequest *req)
-{
-	//LOG("Transmitted: 0x%04X, ret code: 0x%02X\n",
-	//	req->transmitted, req->returnCode);
-}
-
-static int usb_bulk_video_req_send(const void *data, unsigned int size)
-{
-	static SceUdcdDeviceRequest reqs[32];
-	static int n = 0;
-	int idx = n++ % (sizeof(reqs) / sizeof(*reqs));
-
-	reqs[idx] = (SceUdcdDeviceRequest){
-		.endpoint = &endpoints[3],
-		.data = (void *)data,
-		.unk = 0,
-		.size = size,
-		.isControlRequest = 0,
-		.onComplete = bulk_on_complete,
-		.transmitted = 0,
-		.returnCode = 0,
-		.next = NULL,
-		.unused = NULL,
-		.physicalAddress = NULL
-	};
-
-	//LOG("usb_bulk_video_req_send %d\n", n);
-
-	return ksceUdcdReqSend(&reqs[idx]);
-}
-
-#define CLIP(x) ((x) > 255 ? 255 : ((x) < 0 ? 0 : x))
-#define AVERAGE(a, b) (((a) / 2) + ((b) / 2) + ((a) & (b) & 1))
-
-#define RGB2Y(R, G, B) CLIP(( (  66 * (R) + 129 * (G) +  25 * (B) + 128) >> 8) +  16)
-#define RGB2U(R, G, B) CLIP(( ( -38 * (R) -  74 * (G) + 112 * (B) + 128) >> 8) + 128)
-#define RGB2V(R, G, B) CLIP(( ( 112 * (R) -  94 * (G) -  18 * (B) + 128) >> 8) + 128)
-
-static void r8g8b8_to_yuy2(const unsigned char *rgb, unsigned char *yuy2, int width, int height)
-{
-	int i, j;
-
-	for (i = 0; i < height; i++) {
-		for (j = 0; j < width; j+=2) {
-			const unsigned char *rgbp = &rgb[3 * (j + i * width)];
-			unsigned char *yuy2p = &yuy2[2 * (j + i * width)];
-
-			unsigned char sub_r = AVERAGE(rgbp[0 + 0], rgbp[3 + 0]);
-			unsigned char sub_g = AVERAGE(rgbp[0 + 1], rgbp[3 + 1]);
-			unsigned char sub_b = AVERAGE(rgbp[0 + 2], rgbp[3 + 2]);
-			unsigned char y0 = RGB2Y(rgbp[0 + 0], rgbp[0 + 1], rgbp[0 + 2]);
-			unsigned char y1 = RGB2Y(rgbp[3 + 0], rgbp[3 + 1], rgbp[3 + 2]);
-			unsigned char u = RGB2U(sub_r, sub_g, sub_b);
-			unsigned char v = RGB2V(sub_r, sub_g, sub_b);
-
-			yuy2p[0] = y0;
-			yuy2p[1] = u;
-			yuy2p[2] = y1;
-			yuy2p[3] = v;
-		}
-	}
-}
-
-#define PAYLOAD_HEADER_SIZE	12
-#define PAYLOAD_TRANSFER_SIZE	0x4000
-#define PACKET_SIZE		0x200
-
-static unsigned int uvc_payload_transfer(const unsigned char *data,
-					 unsigned int transfer_size,
-					 int fid, int eof)
-{
-	static unsigned char packet[PACKET_SIZE] __attribute__((aligned(128)));
-
-	unsigned int pend_size = transfer_size;
-	unsigned int offset = 0;
-
-	unsigned char payload_header[PAYLOAD_HEADER_SIZE] = {
-		PAYLOAD_HEADER_SIZE,                /* Header Length */
-		UVC_STREAM_EOH,                     /* Bit field header field */
-		0x00, 0x00, 0x00, 0x00,             /* Presentation time stamp field */
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00  /* Source clock reference field */
-	};
-
-	if (fid)
-		payload_header[1] |= UVC_STREAM_FID;
-	if (eof)
-		payload_header[1] |= UVC_STREAM_EOF;
-
-	/*
-	 * The first packet of the transfer includes the payload header.
-	 */
-	memcpy(&packet[0], payload_header, sizeof(payload_header));
-	memcpy(&packet[sizeof(payload_header)], &data[offset],
-	       sizeof(packet) - sizeof(payload_header));
-
-	ksceKernelCpuDcacheAndL2WritebackRange(packet, sizeof(packet));
-	usb_bulk_video_req_send(packet, sizeof(packet));
-
-	pend_size -= PACKET_SIZE;
-	offset += PACKET_SIZE - PAYLOAD_HEADER_SIZE;
-
-	while (pend_size >= PACKET_SIZE) {
-		memcpy(packet, &data[offset], sizeof(packet));
-		ksceKernelCpuDcacheAndL2WritebackRange(packet, sizeof(packet));
-		usb_bulk_video_req_send(packet, sizeof(packet));
-
-		pend_size -= PACKET_SIZE;
-		offset += PACKET_SIZE;
-	}
-
-	if (pend_size > 0) {
-		memcpy(packet, &data[offset], pend_size);
-		ksceKernelCpuDcacheAndL2WritebackRange(packet, pend_size);
-		usb_bulk_video_req_send(packet, pend_size);
-
-		offset += pend_size;
-	}
-
-	return offset;
-}
-
-static void uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned int size)
-{
-	unsigned int offset = 0;
-	unsigned int pend_size = size;
-	unsigned int written;
-
-	while (pend_size + PAYLOAD_HEADER_SIZE > PAYLOAD_TRANSFER_SIZE) {
-		written = uvc_payload_transfer(&data[offset],
-					       PAYLOAD_TRANSFER_SIZE,
-					       fid, 0);
-		pend_size -= written;
-		offset += written;
-	}
-
-	if (pend_size > 0)
-		uvc_payload_transfer(&data[offset],
-				     pend_size + PAYLOAD_HEADER_SIZE,
-				     fid, 1);
-}
-
-#define VIDEO_FRAME_WIDTH	640
-#define VIDEO_FRAME_HEIGHT	480
-#define RGB_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3)
-#define YUY2_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 2)
-static unsigned char rgb_frame[RGB_VIDEO_FRAME_SIZE];
-static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
-
-static int usb_thread(SceSize args, void *argp)
-{
-	stream = 0;
-	uvc_start();
-
-	for (int i = 0; i < VIDEO_FRAME_HEIGHT; i++) {
-		for (int j = 0; j < VIDEO_FRAME_WIDTH; j++) {
-			rgb_frame[0 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 255;
-			rgb_frame[1 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 0;
-			rgb_frame[2 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 0;
-		}
-	}
-
-	r8g8b8_to_yuy2(rgb_frame, yuy2_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
-
-	int fid = 0;
-
-	while (usb_thread_run) {
-		if (stream) {
-			uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
-
-			fid ^= 1;
-
-#if 0
-			while (pend_size > 0) {
-				/*
-				 * The first packet of the transfer includes the payload header.
-				 */
-				memcpy(&packet[0], uvc_header, sizeof(uvc_header));
-				memcpy(&packet[12], &yuy2_frame[offset], PACKET_SIZE - sizeof(uvc_header));
-
-				if (pend_size <= PAYLOAD_TRANSFER_SIZE)
-					packet[1] |= UVC_STREAM_EOF;
-
-				ksceKernelCpuDcacheAndL2WritebackRange(packet, sizeof(packet));
-				usb_bulk_video_req_send(packet, sizeof(packet));
-
-				pend_size -= PAYLOAD_SIZE;
-				offset += PAYLOAD_SIZE;
-
-				while (pend_size >= PACKET_SIZE &&
-				       pend_size >= PAYLOAD_TRANSFER_SIZE) {
-					memcpy(packet, &yuy2_frame[offset], PACKET_SIZE);
-
-					ksceKernelCpuDcacheAndL2WritebackRange(packet, sizeof(packet));
-					usb_bulk_video_req_send(packet, sizeof(packet));
-
-					pend_size -= PACKET_SIZE;
-					offset += PACKET_SIZE;
-				}
-
-				if (pend_size > 0) {
-					memcpy(packet, &yuy2_frame[offset], pend_size);
-
-					ksceKernelCpuDcacheAndL2WritebackRange(packet, pend_size);
-					usb_bulk_video_req_send(packet, pend_size);
-
-					pend_size = 0;
-				}
-			}
-
-			uvc_header[1] ^= UVC_STREAM_FID;
-#endif
-		}
-		ksceKernelDelayThread((1000 * 1000) / 15);
-	}
 
 	return 0;
 }
