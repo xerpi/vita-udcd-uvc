@@ -102,7 +102,7 @@ unsigned char video_streaming_descriptors[] = {
 	0x24,			/* Class-specific VS I/f Type */
 	0x01,			/* Descriptotor Subtype : Input Header */
 	0x01,			/* No format descriptor supported for FS device */
-	0x0E, 0x00,		/* Total size of Class specific VS descr */
+	0x47, 0x00,		/* Total size of Class specific VS descr */
 	0x83,			/* EP address for BULK video data */
 	0x00,			/* No dynamic format change supported */
 	OUTPUT_TERMINAL_ID,	/* Output terminal ID : 4 */
