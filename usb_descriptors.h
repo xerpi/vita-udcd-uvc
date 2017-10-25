@@ -101,7 +101,7 @@ unsigned char video_streaming_descriptors[] = {
 	0x0E,			/* Descriptor size */
 	0x24,			/* Class-specific VS I/f Type */
 	0x01,			/* Descriptotor Subtype : Input Header */
-	0x00,			/* No format desciptor supported for FS device */
+	0x01,			/* No format descriptor supported for FS device */
 	0x0E, 0x00,		/* Total size of Class specific VS descr */
 	0x83,			/* EP address for BULK video data */
 	0x00,			/* No dynamic format change supported */
