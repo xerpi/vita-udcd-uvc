@@ -8,6 +8,7 @@
 #include "uvc.h"
 #include "log.h"
 #include "draw.h"
+#include <taihen.h>
 
 #define LOG(s, ...) \
 	do { \
@@ -64,9 +65,11 @@ static int stream;
 
 static int usb_ep0_req_send(const void *data, unsigned int size)
 {
-	static SceUdcdDeviceRequest req;
+	static SceUdcdDeviceRequest reqs[32];
+	static int n = 0;
+	int idx = n++ % (sizeof(reqs) / sizeof(*reqs));
 
-	req = (SceUdcdDeviceRequest){
+	reqs[idx] = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
 		.data = (void *)data,
 		.unk = 0,
@@ -80,16 +83,20 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
+	ksceKernelDelayThread(1000);
+
 	ksceKernelCpuDcacheAndL2WritebackRange(data, size);
 
-	return ksceUdcdReqSend(&req);
+	return ksceUdcdReqSend(&reqs[idx]);
 }
 
 static int usb_ep0_req_recv(void *data, unsigned int size)
 {
-	static SceUdcdDeviceRequest req;
+	static SceUdcdDeviceRequest reqs[32];
+	static int n = 0;
+	int idx = n++ % (sizeof(reqs) / sizeof(*reqs));
 
-	req = (SceUdcdDeviceRequest){
+	reqs[idx] = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
 		.data = (void *)data,
 		.unk = 0,
@@ -103,9 +110,11 @@ static int usb_ep0_req_recv(void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
+	ksceKernelDelayThread(1000);
+
 	ksceKernelCpuDcacheAndL2InvalidateRange(data, size);
 
-	return ksceUdcdReqRecv(&req);
+	return ksceUdcdReqRecv(&reqs[idx]);
 }
 
 static void bulk_on_complete(struct SceUdcdDeviceRequest *req)
@@ -177,7 +186,9 @@ static void uvc_handle_output_terminal_req(const SceUdcdEP0DeviceRequest *req)
 
 static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 {
-	/* LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest); */
+	/*
+	LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest);
+	*/
 
 	switch (req->wValue >> 8) {
 	case UVC_VS_PROBE_CONTROL:
@@ -506,22 +517,30 @@ static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
 
 int uvc_start(void);
 
+static void r8g8b8_fill(unsigned char *data, unsigned int width, unsigned int height,
+		        unsigned int color)
+{
+	int i, j;
+
+	for (i = 0; i < height; i++) {
+		for (j = 0; j < width; j++) {
+			data[0 + 3 * (j + i * width)] = (color >> 16) & 0xFF;
+			data[1 + 3 * (j + i * width)] = (color >> 8) & 0xFF;
+			data[2 + 3 * (j + i * width)] = color & 0xFF;
+		}
+	}
+}
+
 static int usb_thread(SceSize args, void *argp)
 {
 	int ret;
 	int fid = 0;
+	unsigned int frames = 0;
 
 	stream = 0;
 	uvc_start();
 
-	for (int i = 0; i < VIDEO_FRAME_HEIGHT; i++) {
-		for (int j = 0; j < VIDEO_FRAME_WIDTH; j++) {
-			rgb_frame[0 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 255;
-			rgb_frame[1 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 0;
-			rgb_frame[2 + 3 * (j + i * VIDEO_FRAME_WIDTH)] = 0;
-		}
-	}
-
+	r8g8b8_fill(rgb_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT, 0xFF0000);
 	r8g8b8_to_yuy2(rgb_frame, yuy2_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
 
 	while (usb_thread_run) {
@@ -532,9 +551,23 @@ static int usb_thread(SceSize args, void *argp)
 				stream = 0;
 			}
 
+			static unsigned int colors[] = {
+				0xFF0000,
+				0x00FF00,
+				0x0000FF,
+				0xFF00FF,
+				0xFFFF00,
+				0x00FFFF,
+				0xFFFFFF,
+			};
+
+			r8g8b8_fill(rgb_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT,
+				colors[((frames++) / 1) % (sizeof(colors) / sizeof(*colors))]);
+			r8g8b8_to_yuy2(rgb_frame, yuy2_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
+
 			fid ^= 1;
 		}
-		ksceKernelDelayThread((1000 * 1000) / 15);
+		/* ksceKernelDelayThread((1000 * 1000) / 15); */
 	}
 
 	return 0;
@@ -600,16 +633,54 @@ int uvc_stop(void)
 	return 0;
 }
 
+static SceUID SceUdcd_sub_01E1128C_hook_uid = -1;
+static tai_hook_ref_t SceUdcd_sub_01E1128C_ref;
+
+static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_descriptor, void *desc_data)
+{
+	int ret;
+	int patch = 0;
+	SceUdcdConfigDescriptor *dst = desc_data;
+
+	if (dst->wTotalLength == config_descriptor->wTotalLength)
+		patch = 1;
+
+	ret = TAI_CONTINUE(int, SceUdcd_sub_01E1128C_ref, config_descriptor, desc_data);
+
+	if (patch) {
+		memmove(desc_data + USB_DT_CONFIG_SIZE + sizeof(interface_association_descriptor),
+			desc_data + USB_DT_CONFIG_SIZE,
+			config_descriptor->wTotalLength - 9);
+
+		memcpy(desc_data + USB_DT_CONFIG_SIZE, interface_association_descriptor,
+		       sizeof(interface_association_descriptor));
+
+		dst->wTotalLength = config_descriptor->wTotalLength + sizeof(interface_association_descriptor);
+
+		ksceKernelCpuDcacheAndL2WritebackRange(desc_data, dst->wTotalLength);
+	}
+
+	return ret;
+}
+
 void _start() __attribute__((weak, alias("module_start")));
 
 int module_start(SceSize argc, const void *args)
 {
 	int ret;
+	tai_module_info_t SceUdcd_modinfo;
 
 	log_reset();
 
 	map_framebuffer();
 	LOG("udcd_uvc by xerpi\n");
+
+	SceUdcd_modinfo.size = sizeof(SceUdcd_modinfo);
+	taiGetModuleInfoForKernel(KERNEL_PID, "SceUdcd", &SceUdcd_modinfo);
+
+	SceUdcd_sub_01E1128C_hook_uid = taiHookFunctionOffsetForKernel(KERNEL_PID,
+		&SceUdcd_sub_01E1128C_ref, SceUdcd_modinfo.modid, 0,
+		0x01E1128C - 0x01E10000, 1, SceUdcd_sub_01E1128C_hook_func);
 
 	usb_thread_id = ksceKernelCreateThread("uvc_usb_thread", usb_thread,
 					       0x3C, 0x1000, 0, 0x10000, 0);
@@ -666,6 +737,11 @@ int module_stop(SceSize argc, const void *args)
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
 	ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
 	ksceUdcdUnregister(&uvc_udcd_driver);
+
+	if (SceUdcd_sub_01E1128C_hook_uid > 0) {
+		taiHookReleaseForKernel(SceUdcd_sub_01E1128C_hook_uid,
+			SceUdcd_sub_01E1128C_ref);
+	}
 
 	unmap_framebuffer();
 

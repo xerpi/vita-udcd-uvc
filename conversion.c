@@ -1,6 +1,6 @@
 #include "conversion.h"
 
-#define CLIP(x) ((x) > 255 ? 255 : ((x) < 0 ? 0 : x))
+#define CLIP(x) ((x) > 255 ? 255 : ((x) < 0 ? 0 : (x)))
 #define AVERAGE(a, b) (((a) / 2) + ((b) / 2) + ((a) & (b) & 1))
 
 #define RGB2Y(R, G, B) CLIP(( (  66 * (R) + 129 * (G) +  25 * (B) + 128) >> 8) +  16)
