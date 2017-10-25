@@ -161,18 +161,19 @@ struct SceUdcdInterface interfaces[1] = {
 	{-1, 0, 2},
 };
 
-/* String descriptor */
+/* String descriptors */
 static
-struct SceUdcdStringDescriptor string_descriptors[2] = {
-	{
-		18,
-		USB_DT_STRING,
-		{'V', 'i', 't', 'a', ' ', 'U', 'V', 'C'}
-	},
-	{
-		0,
-		USB_DT_STRING
-	}
+struct SceUdcdStringDescriptor string_descriptor_product = {
+	14,
+	USB_DT_STRING,
+	{'P', 'S', 'V', 'i', 't', 'a'}
+};
+
+static
+struct SceUdcdStringDescriptor string_descriptor_serial = {
+	18,
+	USB_DT_STRING,
+	{'V', 'i', 't', 'a', ' ', 'U', 'V', 'C'}
 };
 
 /* Hi-Speed device descriptor */
@@ -189,8 +190,8 @@ struct SceUdcdDeviceDescriptor devdesc_hi = {
 	0,			/* idVendor */
 	0x100,			/* bcdDevice */
 	0,			/* iManufacturer */
-	0,			/* iProduct */
-	0,			/* iSerialNumber */
+	2,			/* iProduct */
+	3,			/* iSerialNumber */
 	1			/* bNumConfigurations */
 };
 
@@ -319,10 +320,10 @@ struct SceUdcdDeviceDescriptor devdesc_full = {
 	0x40,			/* bMaxPacketSize0 */
 	0,			/* idProduct */
 	0,			/* idVendor */
-	0x200,			/* bcdDevice */
+	0x100,			/* bcdDevice */
 	0,			/* iManufacturer */
-	0,			/* iProduct */
-	0,			/* iSerialNumber */
+	2,			/* iProduct */
+	3,			/* iSerialNumber */
 	1			/* bNumConfigurations */
 };
 

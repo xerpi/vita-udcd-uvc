@@ -266,7 +266,7 @@ static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
 	}
 }
 
-static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequest *req)
+static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequest *req, void *user_data)
 {
 	int ret = 0;
 
@@ -334,14 +334,14 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 	return ret;
 }
 
-static int uvc_udcd_change_setting(int interfaceNumber, int alternateSetting)
+static int uvc_udcd_change_setting(int interfaceNumber, int alternateSetting, int bus)
 {
 	LOG("uvc_udcd_change %d %d\n", interfaceNumber, alternateSetting);
 
 	return 0;
 }
 
-static int uvc_udcd_attach(int usb_version)
+static int uvc_udcd_attach(int usb_version, void *user_data)
 {
 	LOG("uvc_udcd_attach %d\n", usb_version);
 
@@ -351,26 +351,26 @@ static int uvc_udcd_attach(int usb_version)
 	return 0;
 }
 
-static void uvc_udcd_detach(void)
+static void uvc_udcd_detach(void *user_data)
 {
 	LOG("uvc_udcd_detach\n");
 
 	uvc_handle_video_abort();
 }
 
-static void uvc_udcd_configure(int usb_version, int desc_count, SceUdcdInterfaceSettings *settings)
+static void uvc_udcd_configure(int usb_version, int desc_count, SceUdcdInterfaceSettings *settings, void *user_data)
 {
 	LOG("uvc_udcd_configure %d %d %p %d\n", usb_version, desc_count, settings, settings->numDescriptors);
 }
 
-static int uvc_driver_start(int size, void *p)
+static int uvc_driver_start(int size, void *p, void *user_data)
 {
 	LOG("uvc_driver_start\n");
 
 	return 0;
 }
 
-static int uvc_driver_stop(int size, void *p)
+static int uvc_driver_stop(int size, void *p, void *user_data)
 {
 	LOG("uvc_driver_stop\n");
 
@@ -378,27 +378,25 @@ static int uvc_driver_stop(int size, void *p)
 }
 
 static SceUdcdDriver uvc_udcd_driver = {
-	UVC_DRIVER_NAME,
-	4,
-	&endpoints[0],
-	&interfaces[0],
-	&devdesc_hi,
-	&config_hi,
-	&devdesc_full,
-	&config_full,
-	&string_descriptors[0],
-	&string_descriptors[0],
-	&string_descriptors[0],
-	&uvc_udcd_process_request,
-	&uvc_udcd_change_setting,
-	&uvc_udcd_attach,
-	&uvc_udcd_detach,
-	&uvc_udcd_configure,
-	&uvc_driver_start,
-	&uvc_driver_stop,
-	0,
-	0,
-	NULL
+	.driverName			= UVC_DRIVER_NAME,
+	.numEndpoints			= 4,
+	.endpoints			= &endpoints[0],
+	.interface			= &interfaces[0],
+	.descriptor_hi			= &devdesc_hi,
+	.configuration_hi		= &config_hi,
+	.descriptor			= &devdesc_full,
+	.configuration			= &config_full,
+	.stringDescriptors		= NULL,
+	.stringDescriptorProduct	= &string_descriptor_product,
+	.stringDescriptorSerial		= &string_descriptor_serial,
+	.processRequest			= &uvc_udcd_process_request,
+	.changeSetting			= &uvc_udcd_change_setting,
+	.attach				= &uvc_udcd_attach,
+	.detach				= &uvc_udcd_detach,
+	.configure			= &uvc_udcd_configure,
+	.start				= &uvc_driver_start,
+	.stop				= &uvc_driver_stop,
+	.user_data			= NULL
 };
 
 #define PAYLOAD_HEADER_SIZE	12
@@ -639,23 +637,24 @@ static tai_hook_ref_t SceUdcd_sub_01E1128C_ref;
 static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_descriptor, void *desc_data)
 {
 	int ret;
-	int patch = 0;
 	SceUdcdConfigDescriptor *dst = desc_data;
-
-	if (dst->wTotalLength == config_descriptor->wTotalLength)
-		patch = 1;
 
 	ret = TAI_CONTINUE(int, SceUdcd_sub_01E1128C_ref, config_descriptor, desc_data);
 
-	if (patch) {
+	/*
+	 * SceUdcd doesn't use the extra and extraLength members of the
+	 * SceUdcdConfigDescriptor struct, so we have to manually patch
+	 * it to add custom descriptors.
+	 */
+	if (dst->wTotalLength == config_descriptor->wTotalLength) {
 		memmove(desc_data + USB_DT_CONFIG_SIZE + sizeof(interface_association_descriptor),
 			desc_data + USB_DT_CONFIG_SIZE,
-			config_descriptor->wTotalLength - 9);
+			config_descriptor->wTotalLength - USB_DT_CONFIG_SIZE);
 
 		memcpy(desc_data + USB_DT_CONFIG_SIZE, interface_association_descriptor,
 		       sizeof(interface_association_descriptor));
 
-		dst->wTotalLength = config_descriptor->wTotalLength + sizeof(interface_association_descriptor);
+		dst->wTotalLength += sizeof(interface_association_descriptor);
 
 		ksceKernelCpuDcacheAndL2WritebackRange(desc_data, dst->wTotalLength);
 	}
