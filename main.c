@@ -43,7 +43,7 @@ static unsigned char uvc_probe_control_setting[UVC_MAX_PROBE_SETTING] = {
 	0x00, 0x00,                 /* Window size for average bit rate: only applicable to video
 				       streaming with adjustable compression parameters */
 	0x00, 0x00,                 /* Internal video streaming i/f latency in ms */
-	0x00, 0x60, 0x09, 0x00,     /* Max video frame size in bytes */
+	0x00, 0xF0, 0x0F, 0x00,     /* Max video frame size in bytes */
 	0x00, 0x40, 0x00, 0x00,     /* No. of bytes device can rx in single payload = 16 KB */
 
 #ifndef UVC_1_0_SUPPORT
@@ -186,9 +186,7 @@ static void uvc_handle_output_terminal_req(const SceUdcdEP0DeviceRequest *req)
 
 static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 {
-	/*
 	LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest);
-	*/
 
 	switch (req->wValue >> 8) {
 	case UVC_VS_PROBE_CONTROL:
@@ -270,11 +268,9 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 {
 	int ret = 0;
 
-	/*
 	LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
 	LOG("  request: %x type: %x wValue: %x wIndex: %x wLength: %x\n",
 		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);
-	*/
 
 	if (arg < 0)
 		ret = -1;
@@ -506,8 +502,8 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 	return 0;
 }
 
-#define VIDEO_FRAME_WIDTH	640
-#define VIDEO_FRAME_HEIGHT	480
+#define VIDEO_FRAME_WIDTH	960
+#define VIDEO_FRAME_HEIGHT	544
 #define RGB_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3)
 #define YUY2_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 2)
 static unsigned char rgb_frame[RGB_VIDEO_FRAME_SIZE];
@@ -515,7 +511,7 @@ static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
 
 int uvc_start(void);
 
-static void r8g8b8_fill(unsigned char *data, unsigned int width, unsigned int height,
+static void rgb888_fill(unsigned char *data, unsigned int width, unsigned int height,
 		        unsigned int color)
 {
 	int i, j;
@@ -538,17 +534,8 @@ static int usb_thread(SceSize args, void *argp)
 	stream = 0;
 	uvc_start();
 
-	r8g8b8_fill(rgb_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT, 0xFF0000);
-	r8g8b8_to_yuy2(rgb_frame, yuy2_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
-
 	while (usb_thread_run) {
 		if (stream) {
-			ret = uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
-			if (ret < 0) {
-				LOG("Error sending frame: 0x%08X\n", ret);
-				stream = 0;
-			}
-
 			static unsigned int colors[] = {
 				0xFF0000,
 				0x00FF00,
@@ -559,9 +546,17 @@ static int usb_thread(SceSize args, void *argp)
 				0xFFFFFF,
 			};
 
-			r8g8b8_fill(rgb_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT,
+			rgb888_fill(rgb_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT,
 				colors[((frames++) / 1) % (sizeof(colors) / sizeof(*colors))]);
-			r8g8b8_to_yuy2(rgb_frame, yuy2_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
+			rgb888_to_yuy2(rgb_frame, VIDEO_FRAME_WIDTH,
+				       yuy2_frame, VIDEO_FRAME_WIDTH,
+				       VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
+
+			ret = uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
+			if (ret < 0) {
+				LOG("Error sending frame: 0x%08X\n", ret);
+				stream = 0;
+			}
 
 			fid ^= 1;
 		}

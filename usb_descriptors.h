@@ -136,11 +136,11 @@ unsigned char video_streaming_descriptors[] = {
 	0x05,                           /* Subtype: uncompressed frame I/F */
 	0x01,                           /* Frame Descriptor Index */
 	0x01,                           /* Still image capture method 1 supported */
-	0x80,0x02,                      /* Width in pixel: 320-QVGA */
-	0xE0,0x01,                      /* Height in pixel 240-QVGA */
+	0xC0,0x03,                      /* Width in pixel: 960 */
+	0x20,0x02,                      /* Height in pixel 544 */
 	0x00,0x50,0x97,0x31,            /* Min bit rate bits/s. Not specified, taken from MJPEG */
 	0x00,0x50,0x97,0x31,            /* Max bit rate bits/s. Not specified, taken from MJPEG */
-	0x00,0x60,0x09,0x00,            /* Maximum video or still frame size in bytes(Deprecated) */
+	0x00,0xF0,0x0F,0x00,            /* Maximum video or still frame size in bytes(Deprecated) */
 	0x2A,0x2C,0x0A,0x00,            /* Default Frame Interval */
 	0x01,                           /* Frame interval(Frame Rate) types: Only one frame interval supported */
 	0x2A,0x2C,0x0A,0x00,            /* Shortest Frame Interval */
