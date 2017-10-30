@@ -3,9 +3,11 @@
 #include <psp2kern/kernel/sysmem.h>
 #include <psp2kern/kernel/cpu.h>
 #include <psp2kern/udcd.h>
+#include <psp2kern/avcodec/jpegenc.h>
 #include "usb_descriptors.h"
 #include "conversion.h"
 #include "uvc.h"
+#include "utils.h"
 #include "log.h"
 #include "draw.h"
 #include <taihen.h>
@@ -566,6 +568,89 @@ static int usb_thread(SceSize args, void *argp)
 	return 0;
 }
 
+static SceJpegEncoderContext jpegenc_context;
+static SceUID jpegenc_context_uid;
+static void *jpegenc_context_addr;
+static SceUID jpegenc_buffer_uid;
+static void *jpegenc_buffer_addr;
+
+static int jpegenc_init(unsigned int width, unsigned int height, unsigned int streambuf_size)
+{
+	int ret;
+	unsigned int context_size;
+	unsigned int totalbuf_size;
+	unsigned int framebuf_size = width * height * 2;
+	SceJpegEncoderPixelFormat pixelformat = SCE_JPEGENC_PIXELFORMAT_YCBCR422 |
+						SCE_JPEGENC_PIXELFORMAT_CSC_ARGB_YCBCR;
+
+	framebuf_size = ALIGN(framebuf_size, 256);
+	streambuf_size = ALIGN(streambuf_size, 256);
+	totalbuf_size = ALIGN(framebuf_size + streambuf_size, 1024 * 1024);
+	context_size = ALIGN(ksceJpegEncoderGetContextSize(), 4 * 1024);
+
+	jpegenc_context_uid = ksceKernelAllocMemBlock("uvc_jpegenc_context", SCE_KERNEL_MEMBLOCK_TYPE_RW_UNK0, context_size, NULL);
+	if (jpegenc_context_uid < 0) {
+		LOG("Error allocating JPEG encoder context: 0x%08X\n", jpegenc_context_uid);
+		return jpegenc_context_uid;
+	}
+
+	ret = ksceKernelGetMemBlockBase(jpegenc_context_uid, &jpegenc_context_addr);
+	if (ret < 0) {
+		LOG("Error getting JPEG encoder context memory addr: 0x%08X\n", ret);
+		goto err_free_context;
+	}
+
+	jpegenc_context = jpegenc_context_addr;
+
+	jpegenc_buffer_uid = ksceKernelAllocMemBlock("uvc_jpegenc_buffer", 0x40404006, totalbuf_size, NULL);
+	if (jpegenc_buffer_uid < 0) {
+		LOG("Error allocating JPEG encoder memory: 0x%08X\n", jpegenc_buffer_uid);
+		ret = jpegenc_buffer_uid;
+		goto err_free_context;
+	}
+
+	ret = ksceKernelGetMemBlockBase(jpegenc_buffer_uid, &jpegenc_buffer_addr);
+	if (ret < 0) {
+		LOG("Error getting JPEG encoder memory addr: 0x%08X\n", ret);
+		goto err_free_buff;
+	}
+
+	ret = ksceJpegEncoderInit(jpegenc_context, width, height, pixelformat,
+				  (unsigned char *)jpegenc_buffer_addr + framebuf_size,
+				  streambuf_size);
+	if (ret < 0) {
+		LOG("Error initializing the JPEG encoder: 0x%08X\n", ret);
+		goto err_free_buff;
+	}
+
+	return 0;
+
+err_free_buff:
+	ksceKernelFreeMemBlock(jpegenc_buffer_uid);
+	jpegenc_buffer_uid = -1;
+err_free_context:
+	ksceKernelFreeMemBlock(jpegenc_context_uid);
+	jpegenc_context_uid = -1;
+	return ret;
+}
+
+static int jpegenc_term()
+{
+	ksceJpegEncoderEnd(jpegenc_context);
+
+	if (jpegenc_buffer_uid >= 0) {
+		ksceKernelFreeMemBlock(jpegenc_buffer_uid);
+		jpegenc_buffer_uid = -1;
+	}
+
+	if (jpegenc_context_uid >= 0) {
+		ksceKernelFreeMemBlock(jpegenc_context_uid);
+		jpegenc_context_uid = -1;
+	}
+
+	return 0;
+}
+
 int uvc_start(void)
 {
 	int ret;
@@ -581,7 +666,7 @@ int uvc_start(void)
 	ret = ksceUdcdDeactivate();
 	if (ret < 0 && ret != SCE_UDCD_ERROR_INVALID_ARGUMENT) {
 		LOG("Error deactivating UDCD (0x%08X)\n", ret);
-		goto err;
+		return ret;
 	}
 
 	ksceUdcdStop("USB_MTP_Driver", 0, NULL);
@@ -592,25 +677,35 @@ int uvc_start(void)
 	ret = ksceUdcdStart("USBDeviceControllerDriver", 0, NULL);
 	if (ret < 0) {
 		LOG("Error starting the USBDeviceControllerDriver driver (0x%08X)\n", ret);
-		goto err;
+		return ret;
 	}
 
 	ret = ksceUdcdStart(UVC_DRIVER_NAME, 0, NULL);
 	if (ret < 0) {
 		LOG("Error starting the " UVC_DRIVER_NAME " driver (0x%08X)\n", ret);
-		ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
-		goto err;
+		goto err_start_uvc_driver;
 	}
 
 	ret = ksceUdcdActivate(UVC_USB_PID);
 	if (ret < 0) {
 		LOG("Error activating the " UVC_DRIVER_NAME " driver (0x%08X)\n", ret);
-		ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
-		ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
-		goto err;
+		goto err_activate;
 	}
 
-err:
+	ret = jpegenc_init(960, 544, 960 * 544);
+	if (ret < 0) {
+		LOG("Error initiating the JPEG encoder (0x%08X)\n", ret);
+		goto err_jpegenc_init;
+	}
+
+	return 0;
+
+err_jpegenc_init:
+	ksceUdcdDeactivate();
+err_activate:
+	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
+err_start_uvc_driver:
+	ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
 	return ret;
 }
 
@@ -622,6 +717,8 @@ int uvc_stop(void)
 	ksceUdcdStart("USBDeviceControllerDriver", 0, NULL);
 	ksceUdcdStart("USB_MTP_Driver", 0, NULL);
 	ksceUdcdActivate(0x4E4);
+
+	jpegenc_term();
 
 	return 0;
 }

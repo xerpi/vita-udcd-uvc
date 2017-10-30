@@ -4,7 +4,7 @@ OBJS	= main.o conversion.o log.o draw.o font_data.o
 LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
 	-lSceSysmemForKernel_stub -lSceThreadmgrForDriver_stub -lSceCpuForKernel_stub \
 	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub -lSceDisplayForDriver_stub \
-	-lSceIofilemgrForDriver_stub -ltaihenForKernel_stub
+	-lSceIofilemgrForDriver_stub -lSceAvcodecForDriver_stub -ltaihenForKernel_stub
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
