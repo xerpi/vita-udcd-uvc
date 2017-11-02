@@ -75,19 +75,24 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 	return ksceUdcdReqSend(&reqs[idx]);
 }
 
+void usb_ep0_req_recv_on_complete(SceUdcdDeviceRequest *req)
+{
+	ksceKernelSetEventFlag(usb_event_flag_id, 1);
+}
+
 static int usb_ep0_req_recv(void *data, unsigned int size)
 {
-	static SceUdcdDeviceRequest reqs[32];
-	static int n = 0;
-	int idx = n++ % (sizeof(reqs) / sizeof(*reqs));
+	int ret;
+	unsigned int bits;
+	SceUdcdDeviceRequest req;
 
-	reqs[idx] = (SceUdcdDeviceRequest){
+	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
 		.data = (void *)data,
 		.unk = 0,
 		.size = size,
 		.isControlRequest = 0,
-		.onComplete = NULL,
+		.onComplete = &usb_ep0_req_recv_on_complete,
 		.transmitted = 0,
 		.returnCode = 0,
 		.next = NULL,
@@ -95,14 +100,19 @@ static int usb_ep0_req_recv(void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
-	ksceKernelDelayThread(1000);
-
 	ksceKernelCpuDcacheAndL2InvalidateRange(data, size);
 
-	return ksceUdcdReqRecv(&reqs[idx]);
+	ret = ksceUdcdReqRecv(&req);
+	if (ret < 0)
+		return ret;
+
+	ret = ksceKernelWaitEventFlag(usb_event_flag_id, 1,
+				      SCE_EVENT_WAITCLEAR_PAT | SCE_EVENT_WAITOR,
+				      &bits, NULL);
+	return ret;
 }
 
-static void bulk_on_complete(struct SceUdcdDeviceRequest *req)
+static void bulk_on_complete(SceUdcdDeviceRequest *req)
 {
 	//LOG("Transmitted: 0x%04X, ret code: 0x%02X\n",
 	//	req->transmitted, req->returnCode);
@@ -757,8 +767,8 @@ int module_start(SceSize argc, const void *args)
 		goto err_return;
 	}
 
-	usb_event_flag_id =  ksceKernelCreateEventFlag("uvc_event_flag", 0,
-						       0, NULL);
+	usb_event_flag_id = ksceKernelCreateEventFlag("uvc_event_flag", 0,
+						      0, NULL);
 	if (usb_event_flag_id < 0) {
 		LOG("Error creating the USB event flag (0x%08X)\n", usb_event_flag_id);
 		goto err_destroy_thread;
