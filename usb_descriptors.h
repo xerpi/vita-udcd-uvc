@@ -155,12 +155,7 @@ static struct __attribute__((packed)) {
 		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
 		.bFormatIndex			= 1,
 		.bNumFrameDescriptors		= 1,
-		.guidFormat			= {
-			0x59, 0x55, 0x59, 0x32,
-			0x00, 0x00, 0x10, 0x00,
-			0x80, 0x00, 0x00, 0xAA,
-			0x00, 0x38, 0x9B, 0x71,
-		},
+		.guidFormat			= UVC_GUID_FORMAT_YUY2,
 		.bBitsPerPixel			= 16,
 		.bDefaultFrameIndex		= 1,
 		.bAspectRatioX			= 8,
