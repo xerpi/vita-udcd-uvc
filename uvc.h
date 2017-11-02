@@ -5,6 +5,8 @@
 #ifndef UVC_H
 #define UVC_H
 
+#define __packed__ packed
+
 typedef unsigned char __u8;
 typedef unsigned short __u16;
 typedef unsigned int __u32;
@@ -180,7 +182,7 @@ struct uvc_descriptor_header {
 	__u8  bLength;
 	__u8  bDescriptorType;
 	__u8  bDescriptorSubType;
-} __attribute__((packed));
+} __attribute__((__packed__));
 
 /* 3.7.2. Video Control Interface Header Descriptor */
 struct uvc_header_descriptor {
@@ -209,7 +211,7 @@ struct UVC_HEADER_DESCRIPTOR(n) {			\
 	__u32 dwClockFrequency;				\
 	__u8  bInCollection;				\
 	__u8  baInterfaceNr[n];				\
-} __attribute__ ((packed))
+} __attribute__((__packed__))
 
 /* 3.7.2.1. Input Terminal Descriptor */
 struct uvc_input_terminal_descriptor {
@@ -281,7 +283,7 @@ struct UVC_SELECTOR_UNIT_DESCRIPTOR(n) {		\
 	__u8  bNrInPins;				\
 	__u8  baSourceID[n];				\
 	__u8  iSelector;				\
-} __attribute__ ((packed))
+} __attribute__((__packed__))
 
 /* 3.7.2.5. Processing Unit Descriptor */
 struct uvc_processing_unit_descriptor {
@@ -331,7 +333,7 @@ struct UVC_EXTENSION_UNIT_DESCRIPTOR(p, n) {		\
 	__u8  bControlSize;				\
 	__u8  bmControls[n];				\
 	__u8  iExtension;				\
-} __attribute__ ((packed))
+} __attribute__ ((__packed__))
 
 /* 3.8.2.2. Video Control Interrupt Endpoint Descriptor */
 struct uvc_control_endpoint_descriptor {
@@ -380,7 +382,7 @@ struct UVC_INPUT_HEADER_DESCRIPTOR(n, p) {		\
 	__u8  bTriggerUsage;				\
 	__u8  bControlSize;				\
 	__u8  bmaControls[p][n];			\
-} __attribute__ ((packed))
+} __attribute__((__packed__))
 
 /* 3.9.2.2. Output Header Descriptor */
 struct uvc_output_header_descriptor {
@@ -411,7 +413,7 @@ struct UVC_OUTPUT_HEADER_DESCRIPTOR(n, p) {		\
 	__u8  bTerminalLink;				\
 	__u8  bControlSize;				\
 	__u8  bmaControls[p][n];			\
-} __attribute__ ((packed))
+} __attribute__ ((__packed__))
 
 /* 3.9.2.6. Color matching descriptor */
 struct uvc_color_matching_descriptor {
@@ -500,7 +502,7 @@ struct UVC_FRAME_UNCOMPRESSED(n) {			\
 	__u32 dwDefaultFrameInterval;			\
 	__u8  bFrameIntervalType;			\
 	__u32 dwFrameInterval[n];			\
-} __attribute__ ((packed))
+} __attribute__((__packed__))
 
 /* MJPEG Payload - 3.1.1. MJPEG Video Format Descriptor */
 struct uvc_format_mjpeg {
@@ -556,6 +558,6 @@ struct UVC_FRAME_MJPEG(n) {				\
 	__u32 dwDefaultFrameInterval;			\
 	__u8  bFrameIntervalType;			\
 	__u32 dwFrameInterval[n];			\
-} __attribute__ ((packed))
+} __attribute__((__packed__))
 
 #endif /* UVC_H */

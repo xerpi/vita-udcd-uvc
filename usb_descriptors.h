@@ -1,3 +1,25 @@
+#include "uvc.h"
+
+/*
+ * USB definitions
+ */
+
+#define USB_TYPE_MASK			(0x03 << 5)
+#define USB_TYPE_STANDARD		(0x00 << 5)
+#define USB_TYPE_CLASS			(0x01 << 5)
+#define USB_TYPE_VENDOR			(0x02 << 5)
+#define USB_TYPE_RESERVED		(0x03 << 5)
+
+#define USB_DT_CS_DEVICE		(USB_TYPE_CLASS | USB_DT_DEVICE)
+#define USB_DT_CS_CONFIG		(USB_TYPE_CLASS | USB_DT_CONFIG)
+#define USB_DT_CS_STRING		(USB_TYPE_CLASS | USB_DT_STRING)
+#define USB_DT_CS_INTERFACE		(USB_TYPE_CLASS | USB_DT_INTERFACE)
+#define USB_DT_CS_ENDPOINT		(USB_TYPE_CLASS | USB_DT_ENDPOINT)
+
+/*
+ * UVC Configurable options
+ */
+
 #define CONTROL_INTERFACE 	0
 #define STREAM_INTERFACE	1
 
@@ -20,70 +42,79 @@ unsigned char interface_association_descriptor[] = {
 	0x00,			/* String desc index for interface */
 };
 
-static
-unsigned char video_control_descriptors[] = {
-        /* Class specific VC Interface Header Descriptor */
-        0x0D,                           /* Descriptor size */
-        0x24,                           /* Class Specific I/f Header Descriptor type */
-        0x01,                           /* Descriptor Sub type : VC_HEADER */
-        0x10, 0x01,                     /* Revision of UVC class spec: 1.1 - Minimum version required
-                                           for USB Compliance. Not supported on Windows XP*/
-        0x51, 0x00,                     /* Total Size of class specific descriptors (till Output terminal) */
-        0x00,0x6C,0xDC,0x02,            /* Clock frequency : 48MHz(Deprecated) */
-        0x01,                           /* Number of streaming interfaces */
-        0x01,                           /* Video streaming I/f 1 belongs to VC i/f */
+DECLARE_UVC_HEADER_DESCRIPTOR(1);
+DECLARE_UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3);
 
-        /* Input (Camera) Terminal Descriptor */
-        0x12,                           /* Descriptor size */
-        0x24,                           /* Class specific interface desc type */
-        0x02,                           /* Input Terminal Descriptor type */
-        CAMERA_TERMINAL_ID,             /* ID of this terminal */
-        0x01,0x02,                      /* Camera terminal type */
-        0x00,                           /* No association terminal */
-        0x00,                           /* String desc index : Not used */
-        0x00,0x00,                      /* No optical zoom supported */
-        0x00,0x00,                      /* No optical zoom supported */
-        0x00,0x00,                      /* No optical zoom supported */
-        0x03,                           /* Size of controls field for this terminal : 3 bytes */
-        0x00,0x00,0x00,                 /* bmControls field of camera terminal: No controls supported */
-
-        /* Processing Unit Descriptor */
-        0x0D,                           /* Descriptor size */
-        0x24,                           /* Class specific interface desc type */
-        0x05,                           /* Processing Unit Descriptor type */
-        PROCESSING_UNIT_ID,             /* ID of this terminal */
-        CAMERA_TERMINAL_ID,             /* Source ID : 1 : Conencted to input terminal */
-        0x00,0x40,                      /* Digital multiplier */
-        0x03,                           /* Size of controls field for this terminal : 3 bytes */
-        0x00,0x00,0x00,                 /* bmControls field of processing unit: Brightness control supported */
-        0x00,                           /* String desc index : Not used */
-        0x00,                           /* Analog Video Standards Supported: None */
-
-        /* Extension Unit Descriptor */
-        0x1C,                           /* Descriptor size */
-        0x24,                           /* Class specific interface desc type */
-        0x06,                           /* Extension Unit Descriptor type */
-        EXTENSION_UNIT_ID,              /* ID of this terminal */
-        0xFF,0xFF,0xFF,0xFF,            /* 16 byte GUID */
-        0xFF,0xFF,0xFF,0xFF,
-        0xFF,0xFF,0xFF,0xFF,
-        0xFF,0xFF,0xFF,0xFF,
-        0x00,                           /* Number of controls in this terminal */
-        0x01,                           /* Number of input pins in this terminal */
-        PROCESSING_UNIT_ID,             /* Source ID : 2 : Connected to Proc Unit */
-        0x03,                           /* Size of controls field for this terminal : 3 bytes */
-        0x00,0x00,0x00,                 /* No controls supported */
-        0x00,                           /* String desc index : Not used */
-
-        /* Output Terminal Descriptor */
-        0x09,                           /* Descriptor size */
-        0x24,                           /* Class specific interface desc type */
-        0x03,                           /* Output Terminal Descriptor type */
-        OUTPUT_TERMINAL_ID,             /* ID of this terminal */
-        0x01,0x01,                      /* USB Streaming terminal type */
-        0x00,                           /* No association terminal */
-        EXTENSION_UNIT_ID,              /* Source ID : 3 : Connected to Extn Unit */
-        0x00,                           /* String desc index : Not used */
+static struct __attribute__((packed)) {
+	struct UVC_HEADER_DESCRIPTOR(1) header_descriptor;
+	struct uvc_camera_terminal_descriptor input_camera_terminal_descriptor;
+	struct uvc_processing_unit_descriptor processing_unit_descriptor;
+	struct UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3) extension_unit_descriptor;
+	struct uvc_output_terminal_descriptor output_terminal_descriptor;
+} video_control_descriptors = {
+	.header_descriptor = {
+		.bLength			= sizeof(video_control_descriptors.header_descriptor),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VC_HEADER,
+		.bcdUVC				= 0x0110,
+		.wTotalLength			= sizeof(video_control_descriptors),
+		.dwClockFrequency		= 48000000,
+		.bInCollection			= 1,
+		.baInterfaceNr			= {1},
+	},
+	.input_camera_terminal_descriptor = {
+		.bLength			= sizeof(video_control_descriptors.input_camera_terminal_descriptor),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VC_INPUT_TERMINAL,
+		.bTerminalID			= CAMERA_TERMINAL_ID,
+		.wTerminalType			= UVC_ITT_CAMERA,
+		.bAssocTerminal			= 0,
+		.iTerminal			= 0,
+		.wObjectiveFocalLengthMin	= 0,
+		.wObjectiveFocalLengthMax	= 0,
+		.wOcularFocalLength		= 0,
+		.bControlSize			= 3,
+		.bmControls			= {0, 0, 0},
+	},
+	.processing_unit_descriptor = {
+		.bLength			= sizeof(video_control_descriptors.processing_unit_descriptor),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VC_PROCESSING_UNIT,
+		.bUnitID			= PROCESSING_UNIT_ID,
+		.bSourceID			= CAMERA_TERMINAL_ID,
+		.wMaxMultiplier			= 0x4000,
+		.bControlSize			= 2,
+		.bmControls			= {0, 0},
+		.iProcessing			= 0,
+	},
+	.extension_unit_descriptor = {
+		.bLength			= sizeof(video_control_descriptors.extension_unit_descriptor),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VC_EXTENSION_UNIT,
+		.bUnitID			= EXTENSION_UNIT_ID,
+		.guidExtensionCode		= {
+			0xFF, 0xFF, 0xFF, 0xFF,
+			0xFF, 0xFF, 0xFF, 0xFF,
+			0xFF, 0xFF, 0xFF, 0xFF,
+			0xFF, 0xFF, 0xFF, 0xFF,
+		},
+		.bNumControls			= 0,
+		.bNrInPins			= 1,
+		.baSourceID			= {EXTENSION_UNIT_ID},
+		.bControlSize			= 3,
+		.bmControls			= {0, 0, 0},
+		.iExtension			= 0,
+	},
+	.output_terminal_descriptor = {
+		.bLength			= sizeof(video_control_descriptors.output_terminal_descriptor),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VC_OUTPUT_TERMINAL,
+		.bTerminalID			= OUTPUT_TERMINAL_ID,
+		.wTerminalType			= UVC_TT_STREAMING,
+		.bAssocTerminal			= 0,
+		.bSourceID			= EXTENSION_UNIT_ID,
+		.iTerminal			= 0,
+	},
 };
 
 static
@@ -95,55 +126,63 @@ unsigned char video_control_specific_endpoint_descriptors[] = {
 	0x40,0x00,                      /* Max packet size = 64 bytes */
 };
 
-static
-unsigned char video_streaming_descriptors[] = {
-	/* Class-specific Video Streaming Input Header Descriptor */
-	0x0E,			/* Descriptor size */
-	0x24,			/* Class-specific VS I/f Type */
-	0x01,			/* Descriptotor Subtype : Input Header */
-	0x01,			/* No format descriptor supported for FS device */
-	0x47, 0x00,		/* Total size of Class specific VS descr */
-	0x83,			/* EP address for BULK video data */
-	0x00,			/* No dynamic format change supported */
-	OUTPUT_TERMINAL_ID,	/* Output terminal ID : 4 */
-	0x01,			/* Still image capture method 1 supported */
-	0x00,			/* Hardware trigger NOT supported */
-	0x00,			/* Hardware to initiate still image capture NOT supported */
-	0x01,			/* Size of controls field : 1 byte */
-	0x00,			/* D2 : Compression quality supported */
+DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 1);
+DECLARE_UVC_FRAME_UNCOMPRESSED(1);
 
-	/* Class specific Uncompressed VS Format descriptor */
-	0x1B,                           /* Descriptor size */
-	0x24,                           /* Class-specific VS I/f Type */
-	0x04,                           /* Subtype : uncompressed format I/F */
-	0x01,                           /* Format desciptor index (only one format is supported) */
-	0x01,                           /* number of frame descriptor followed */
-	0x59,0x55,0x59,0x32,            /* GUID used to identify streaming-encoding format: YUY2  */
-	0x00,0x00,0x10,0x00,
-	0x80,0x00,0x00,0xAA,
-	0x00,0x38,0x9B,0x71,
-	0x10,                           /* Number of bits per pixel used to specify color in the decoded video frame.
-				           0 if not applicable: 16 bit per pixel */
-	0x01,                           /* Optimum Frame Index for this stream: 1 */
-	0x08,                           /* X dimension of the picture aspect ratio: Non-interlaced in progressive scan */
-	0x06,                           /* Y dimension of the picture aspect ratio: Non-interlaced in progressive scan*/
-	0x00,                           /* Interlace Flags: Progressive scanning, no interlace */
-	0x00,                           /* duplication of the video stream restriction: 0 - no restriction */
-
-	/* Class specific Uncompressed VS Frame descriptor */
-	0x1E,                           /* Descriptor size */
-	0x24,                           /* Descriptor type*/
-	0x05,                           /* Subtype: uncompressed frame I/F */
-	0x01,                           /* Frame Descriptor Index */
-	0x01,                           /* Still image capture method 1 supported */
-	0xC0,0x03,                      /* Width in pixel: 960 */
-	0x20,0x02,                      /* Height in pixel 544 */
-	0x00,0x50,0x97,0x31,            /* Min bit rate bits/s. Not specified, taken from MJPEG */
-	0x00,0x50,0x97,0x31,            /* Max bit rate bits/s. Not specified, taken from MJPEG */
-	0x00,0xF0,0x0F,0x00,            /* Maximum video or still frame size in bytes(Deprecated) */
-	0x2A,0x2C,0x0A,0x00,            /* Default Frame Interval */
-	0x01,                           /* Frame interval(Frame Rate) types: Only one frame interval supported */
-	0x2A,0x2C,0x0A,0x00,            /* Shortest Frame Interval */
+static struct __attribute__((packed)) {
+	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
+	struct uvc_format_uncompressed format_uncompressed;
+	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed;
+} video_streaming_descriptors = {
+	.input_header_descriptor = {
+		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_INPUT_HEADER,
+		.bNumFormats			= 1,
+		.wTotalLength			= sizeof(video_streaming_descriptors),
+		.bEndpointAddress		= 0x83,
+		.bmInfo				= 0,
+		.bTerminalLink			= OUTPUT_TERMINAL_ID,
+		.bStillCaptureMethod		= 1,
+		.bTriggerSupport		= 0,
+		.bTriggerUsage			= 0,
+		.bControlSize			= 1,
+		.bmaControls			= {{0}, },
+	},
+	.format_uncompressed = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
+		.bFormatIndex			= 1,
+		.bNumFrameDescriptors		= 1,
+		.guidFormat			= {
+			0x59, 0x55, 0x59, 0x32,
+			0x00, 0x00, 0x10, 0x00,
+			0x80, 0x00, 0x00, 0xAA,
+			0x00, 0x38, 0x9B, 0x71,
+		},
+		.bBitsPerPixel			= 16,
+		.bDefaultFrameIndex		= 1,
+		.bAspectRatioX			= 8,
+		.bAspectRatioY			= 6,
+		.bmInterfaceFlags		= 0,
+		.bCopyProtect			= 0,
+	},
+	.frame_uncompressed = {
+		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
+		.bFrameIndex			= 1,
+		.bmCapabilities			= 1,
+		.wWidth				= 960,
+		.wHeight			= 544,
+		.dwMinBitRate			= 832000000,
+		.dwMaxBitRate			= 832000000,
+		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
+		.dwDefaultFrameInterval		= 666666,
+		.bFrameIntervalType		= 1,
+		.dwFrameInterval		= {666666},
+	},
 };
 
 /* Endpoint blocks */
@@ -243,7 +282,7 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 		0x00,				/* bInterfaceProtocol */
 		0,				/* iInterface */
 		&endpdesc_hi[0],		/* endpoints */
-		video_control_descriptors,
+		(void *)&video_control_descriptors,
 		sizeof(video_control_descriptors)
 	},
 	{	/* Standard Video Streaming Interface Descriptor */
@@ -257,7 +296,7 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 		0x00,				/* bInterfaceProtocol */
 		0,				/* iInterface */
 		&endpdesc_hi[2],		/* endpoints */
-		video_streaming_descriptors,
+		(void *)&video_streaming_descriptors,
 		sizeof(video_streaming_descriptors)
 	},
 	{
@@ -375,7 +414,7 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 		0x00,				/* bInterfaceProtocol */
 		1,				/* iInterface */
 		&endpdesc_full[0],		/* endpoints */
-		video_control_descriptors,
+		(void *)&video_control_descriptors,
 		sizeof(video_control_descriptors)
 	},
 	{	/* Standard Video Streaming Interface Descriptor */
@@ -389,7 +428,7 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 		0x00,				/* bInterfaceProtocol */
 		1,				/* iInterface */
 		&endpdesc_full[2],		/* endpoints */
-		video_streaming_descriptors,
+		(void *)&video_streaming_descriptors,
 		sizeof(video_streaming_descriptors)
 	},
 	{
