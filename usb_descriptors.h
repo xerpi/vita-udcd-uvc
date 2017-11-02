@@ -128,11 +128,14 @@ unsigned char video_control_specific_endpoint_descriptors[] = {
 
 DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 1);
 DECLARE_UVC_FRAME_UNCOMPRESSED(1);
+DECLARE_UVC_FRAME_MJPEG(1);
 
 static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_uncompressed format_uncompressed;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed;
+	struct uvc_format_mjpeg format_mjpeg;
+	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
@@ -167,6 +170,34 @@ static struct __attribute__((packed)) {
 		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
+		.bFrameIndex			= 1,
+		.bmCapabilities			= 1,
+		.wWidth				= 960,
+		.wHeight			= 544,
+		.dwMinBitRate			= 832000000,
+		.dwMaxBitRate			= 832000000,
+		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
+		.dwDefaultFrameInterval		= 666666,
+		.bFrameIntervalType		= 1,
+		.dwFrameInterval		= {666666},
+	},
+	.format_mjpeg = {
+		.bLength			= sizeof(video_streaming_descriptors.format_mjpeg),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FORMAT_MJPEG,
+		.bFormatIndex			= 2,
+		.bNumFrameDescriptors		= 1,
+		.bmFlags			= 0,
+		.bDefaultFrameIndex		= 1,
+		.bAspectRatioX			= 8,
+		.bAspectRatioY			= 6,
+		.bmInterfaceFlags		= 0,
+		.bCopyProtect			= 0,
+	},
+	.frame_mjpeg = {
+		.bLength			= sizeof(video_streaming_descriptors.frame_mjpeg),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FRAME_MJPEG,
 		.bFrameIndex			= 1,
 		.bmCapabilities			= 1,
 		.wWidth				= 960,
