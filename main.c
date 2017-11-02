@@ -22,43 +22,26 @@
 #define UVC_DRIVER_NAME	"VITAUVC00"
 #define UVC_USB_PID	0x1337
 
-#ifdef UVC_1_0_SUPPORT
-#define UVC_MAX_PROBE_SETTING		26
-#define UVC_MAX_PROBE_SETTING_ALIGNED	32
-#else
-#define UVC_MAX_PROBE_SETTING		34
-#define UVC_MAX_PROBE_SETTING_ALIGNED	48
-#endif
-
-/* UVC Probe Control Setting for a USB 2.0 connection. */
-static unsigned char uvc_probe_control_setting[UVC_MAX_PROBE_SETTING] = {
-	0x00, 0x00,                 /* bmHint : no hit */
-	0x01,                       /* Use 1st Video format index */
-	0x01,                       /* Use 1st Video frame index */
-	0x2A, 0x2C, 0x0A, 0x00,     /* Desired frame interval in the unit of 100ns: 15 fps */
-	0x00, 0x00,                 /* Key frame rate in key frame/video frame units: only applicable
-				       to video streaming with adjustable compression parameters */
-	0x00, 0x00,                 /* PFrame rate in PFrame / key frame units: only applicable to
-				       video streaming with adjustable compression parameters */
-	0x00, 0x00,                 /* Compression quality control: only applicable to video streaming
-				       with adjustable compression parameters */
-	0x00, 0x00,                 /* Window size for average bit rate: only applicable to video
-				       streaming with adjustable compression parameters */
-	0x00, 0x00,                 /* Internal video streaming i/f latency in ms */
-	0x00, 0xF0, 0x0F, 0x00,     /* Max video frame size in bytes */
-	0x00, 0x40, 0x00, 0x00,     /* No. of bytes device can rx in single payload = 16 KB */
-
-#ifndef UVC_1_0_SUPPORT
-	/* UVC 1.1 Probe Control has additional fields from UVC 1.0 */
-	0x00, 0x60, 0xE3, 0x16,             /* Device Clock */
-	0x00,                               /* Framing Information - Ignored for uncompressed format */
-	0x00,                               /* Preferred payload format version */
-	0x00,                               /* Minimum payload format version */
-	0x00                                /* Maximum payload format version */
-#endif
+static struct uvc_streaming_control uvc_probe_control_setting = {
+	.bmHint				= 0,
+	.bFormatIndex			= 1,
+	.bFrameIndex			= 1,
+	.dwFrameInterval		= 666666,
+	.wKeyFrameRate			= 0,
+	.wPFrameRate			= 0,
+	.wCompQuality			= 0,
+	.wCompWindowSize		= 0,
+	.wDelay				= 0,
+	.dwMaxVideoFrameSize		= 960 * 544 * 2,
+	.dwMaxPayloadTransferSize	= 0x4000,
+	.dwClockFrequency		= 384000000,
+	.bmFramingInfo			= 0,
+	.bPreferedVersion		= 0,
+	.bMinVersion			= 0,
+	.bMaxVersion			= 0,
 };
 
-static unsigned char uvc_probe_control_setting_read[UVC_MAX_PROBE_SETTING_ALIGNED];
+static struct uvc_streaming_control uvc_probe_control_setting_read;
 
 static SceUID usb_thread_id;
 static SceUID usb_event_flag_id;
@@ -201,18 +184,15 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 		case UVC_GET_MIN:
 		case UVC_GET_MAX:
 		case UVC_GET_DEF:
-			usb_ep0_req_send(uvc_probe_control_setting,
+			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
 		case UVC_SET_CUR:
-			usb_ep0_req_recv(uvc_probe_control_setting_read,
+			usb_ep0_req_recv(&uvc_probe_control_setting_read,
 					 sizeof(uvc_probe_control_setting_read));
-			uvc_probe_control_setting[2] = uvc_probe_control_setting_read[2];
-			uvc_probe_control_setting[3] = uvc_probe_control_setting_read[3];
-			uvc_probe_control_setting[4] = uvc_probe_control_setting_read[4];
-			uvc_probe_control_setting[5] = uvc_probe_control_setting_read[5];
-			uvc_probe_control_setting[6] = uvc_probe_control_setting_read[6];
-			uvc_probe_control_setting[7] = uvc_probe_control_setting_read[7];
+			uvc_probe_control_setting.bFormatIndex = uvc_probe_control_setting_read.bFormatIndex;
+			uvc_probe_control_setting.bFrameIndex = uvc_probe_control_setting_read.bFrameIndex;
+			uvc_probe_control_setting.dwFrameInterval = uvc_probe_control_setting_read.dwFrameInterval;
 			break;
 		}
 		break;
@@ -223,18 +203,15 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 		case UVC_GET_LEN:
 			break;
 		case UVC_GET_CUR:
-			usb_ep0_req_send(uvc_probe_control_setting,
+			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
 		case UVC_SET_CUR:
-			usb_ep0_req_recv(uvc_probe_control_setting_read,
+			usb_ep0_req_recv(&uvc_probe_control_setting_read,
 					 sizeof(uvc_probe_control_setting_read));
-			uvc_probe_control_setting[2] = uvc_probe_control_setting_read[2];
-			uvc_probe_control_setting[3] = uvc_probe_control_setting_read[3];
-			uvc_probe_control_setting[4] = uvc_probe_control_setting_read[4];
-			uvc_probe_control_setting[5] = uvc_probe_control_setting_read[5];
-			uvc_probe_control_setting[6] = uvc_probe_control_setting_read[6];
-			uvc_probe_control_setting[7] = uvc_probe_control_setting_read[7];
+			uvc_probe_control_setting.bFormatIndex = uvc_probe_control_setting_read.bFormatIndex;
+			uvc_probe_control_setting.bFrameIndex = uvc_probe_control_setting_read.bFrameIndex;
+			uvc_probe_control_setting.dwFrameInterval = uvc_probe_control_setting_read.dwFrameInterval;
 
                         /* TODO: Start streaming properly */
                         stream = 1;
