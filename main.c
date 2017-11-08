@@ -3,6 +3,7 @@
 #include <psp2kern/kernel/sysmem.h>
 #include <psp2kern/kernel/cpu.h>
 #include <psp2kern/udcd.h>
+#include <psp2kern/display.h>
 #include <psp2kern/avcodec/jpegenc.h>
 #include "usb_descriptors.h"
 #include "conversion.h"
@@ -41,7 +42,10 @@ static struct uvc_streaming_control uvc_probe_control_setting = {
 	.bMaxVersion			= 0,
 };
 
-static struct uvc_streaming_control uvc_probe_control_setting_read;
+static struct {
+	unsigned char buffer[512];
+	SceUdcdEP0DeviceRequest ep0_req;
+} pending_recv;
 
 static SceUID usb_thread_id;
 static SceUID usb_event_flag_id;
@@ -75,22 +79,19 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 	return ksceUdcdReqSend(&reqs[idx]);
 }
 
-void usb_ep0_req_recv_on_complete(SceUdcdDeviceRequest *req)
-{
-	ksceKernelSetEventFlag(usb_event_flag_id, 1);
-}
+static void usb_ep0_req_recv_on_complete(SceUdcdDeviceRequest *req);
 
-static int usb_ep0_req_recv(void *data, unsigned int size)
+static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 {
-	int ret;
-	unsigned int bits;
-	SceUdcdDeviceRequest req;
+	static SceUdcdDeviceRequest req;
+
+	pending_recv.ep0_req = *ep0_req;
 
 	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
-		.data = (void *)data,
+		.data = (void *)pending_recv.buffer,
 		.unk = 0,
-		.size = size,
+		.size = pending_recv.ep0_req.wLength,
 		.isControlRequest = 0,
 		.onComplete = &usb_ep0_req_recv_on_complete,
 		.transmitted = 0,
@@ -100,22 +101,10 @@ static int usb_ep0_req_recv(void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
-	ksceKernelCpuDcacheAndL2InvalidateRange(data, size);
+	ksceKernelCpuDcacheAndL2InvalidateRange(pending_recv.buffer,
+						pending_recv.ep0_req.wLength);
 
-	ret = ksceUdcdReqRecv(&req);
-	if (ret < 0)
-		return ret;
-
-	ret = ksceKernelWaitEventFlag(usb_event_flag_id, 1,
-				      SCE_EVENT_WAITCLEAR_PAT | SCE_EVENT_WAITOR,
-				      &bits, NULL);
-	return ret;
-}
-
-static void bulk_on_complete(SceUdcdDeviceRequest *req)
-{
-	//LOG("Transmitted: 0x%04X, ret code: 0x%02X\n",
-	//	req->transmitted, req->returnCode);
+	return ksceUdcdReqRecv(&req);
 }
 
 static int usb_bulk_video_req_send(const void *data, unsigned int size)
@@ -130,7 +119,7 @@ static int usb_bulk_video_req_send(const void *data, unsigned int size)
 		.unk = 0,
 		.size = size,
 		.isControlRequest = 0,
-		.onComplete = bulk_on_complete,
+		.onComplete = NULL,
 		.transmitted = 0,
 		.returnCode = 0,
 		.next = NULL,
@@ -152,6 +141,47 @@ static int usb_bulk_video_req_send(const void *data, unsigned int size)
 	ksceKernelDelayThread(1000);
 
 	return ret;
+}
+
+static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *req)
+{
+	struct uvc_streaming_control *streaming_control =
+		(struct uvc_streaming_control *)pending_recv.buffer;
+
+	switch (req->wValue >> 8) {
+	case UVC_VS_PROBE_CONTROL:
+		switch (req->bRequest) {
+		case UVC_SET_CUR:
+			uvc_probe_control_setting.bFormatIndex = streaming_control->bFormatIndex;
+			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
+			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
+			break;
+		}
+		break;
+	case UVC_VS_COMMIT_CONTROL:
+		switch (req->bRequest) {
+		case UVC_SET_CUR:
+			uvc_probe_control_setting.bFormatIndex = streaming_control->bFormatIndex;
+			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
+			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
+
+			LOG("Commit, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
+
+                        /* TODO: Start streaming properly */
+                        stream = 1;
+			break;
+		}
+		break;
+	}
+}
+
+void usb_ep0_req_recv_on_complete(SceUdcdDeviceRequest *req)
+{
+	switch (pending_recv.ep0_req.wIndex & 0xFF) {
+	case STREAM_INTERFACE:
+		uvc_handle_video_streaming_req_recv(&pending_recv.ep0_req);
+		break;
+	}
 }
 
 static void uvc_handle_interface_ctrl_req(const SceUdcdEP0DeviceRequest *req)
@@ -181,7 +211,7 @@ static void uvc_handle_output_terminal_req(const SceUdcdEP0DeviceRequest *req)
 
 static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 {
-	LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest);
+	/*LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest);*/
 
 	switch (req->wValue >> 8) {
 	case UVC_VS_PROBE_CONTROL:
@@ -198,11 +228,7 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 					 sizeof(uvc_probe_control_setting));
 			break;
 		case UVC_SET_CUR:
-			usb_ep0_req_recv(&uvc_probe_control_setting_read,
-					 sizeof(uvc_probe_control_setting_read));
-			uvc_probe_control_setting.bFormatIndex = uvc_probe_control_setting_read.bFormatIndex;
-			uvc_probe_control_setting.bFrameIndex = uvc_probe_control_setting_read.bFrameIndex;
-			uvc_probe_control_setting.dwFrameInterval = uvc_probe_control_setting_read.dwFrameInterval;
+			usb_ep0_enqueue_recv_for_req(req);
 			break;
 		}
 		break;
@@ -217,14 +243,7 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 					 sizeof(uvc_probe_control_setting));
 			break;
 		case UVC_SET_CUR:
-			usb_ep0_req_recv(&uvc_probe_control_setting_read,
-					 sizeof(uvc_probe_control_setting_read));
-			uvc_probe_control_setting.bFormatIndex = uvc_probe_control_setting_read.bFormatIndex;
-			uvc_probe_control_setting.bFrameIndex = uvc_probe_control_setting_read.bFrameIndex;
-			uvc_probe_control_setting.dwFrameInterval = uvc_probe_control_setting_read.dwFrameInterval;
-
-                        /* TODO: Start streaming properly */
-                        stream = 1;
+			usb_ep0_enqueue_recv_for_req(req);
 			break;
 		}
 		break;
@@ -257,9 +276,9 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 {
 	int ret = 0;
 
-	LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
+	/*LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
 	LOG("  request: %x type: %x wValue: %x wIndex: %x wLength: %x\n",
-		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);
+		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);*/
 
 	if (arg < 0)
 		ret = -1;
@@ -493,73 +512,108 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 
 #define VIDEO_FRAME_WIDTH	960
 #define VIDEO_FRAME_HEIGHT	544
-#define RGB_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3)
-#define YUY2_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 2)
-static unsigned char rgb_frame[RGB_VIDEO_FRAME_SIZE];
-static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
-
-int uvc_start(void);
-
-static void rgb888_fill(unsigned char *data, unsigned int width, unsigned int height,
-		        unsigned int color)
-{
-	int i, j;
-
-	for (i = 0; i < height; i++) {
-		for (j = 0; j < width; j++) {
-			data[0 + 3 * (j + i * width)] = (color >> 16) & 0xFF;
-			data[1 + 3 * (j + i * width)] = (color >> 8) & 0xFF;
-			data[2 + 3 * (j + i * width)] = color & 0xFF;
-		}
-	}
-}
-
-static int usb_thread(SceSize args, void *argp)
-{
-	int ret;
-	int fid = 0;
-	unsigned int frames = 0;
-
-	stream = 0;
-	uvc_start();
-
-	while (usb_thread_run) {
-		if (stream) {
-			static unsigned int colors[] = {
-				0xFF0000,
-				0x00FF00,
-				0x0000FF,
-				0xFF00FF,
-				0xFFFF00,
-				0x00FFFF,
-				0xFFFFFF,
-			};
-
-			rgb888_fill(rgb_frame, VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT,
-				colors[((frames++) / 1) % (sizeof(colors) / sizeof(*colors))]);
-			rgb888_to_yuy2(rgb_frame, VIDEO_FRAME_WIDTH,
-				       yuy2_frame, VIDEO_FRAME_WIDTH,
-				       VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
-
-			ret = uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
-			if (ret < 0) {
-				LOG("Error sending frame: 0x%08X\n", ret);
-				stream = 0;
-			}
-
-			fid ^= 1;
-		}
-		/* ksceKernelDelayThread((1000 * 1000) / 15); */
-	}
-
-	return 0;
-}
 
 static SceJpegEncoderContext jpegenc_context;
 static SceUID jpegenc_context_uid;
 static void *jpegenc_context_addr;
 static SceUID jpegenc_buffer_uid;
 static void *jpegenc_buffer_addr;
+
+int uvc_start(void);
+int uvc_stop(void);
+
+static int usb_thread(SceSize args, void *argp)
+{
+	int ret;
+	int fid = 0;
+
+	SceUID rgba_buff_uid;
+	void *rgba_buff_addr = NULL;
+	unsigned int rgba_buff_size = ALIGN(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 4, 256 * 1024);
+
+	rgba_buff_uid = ksceKernelAllocMemBlock("rgba_buff_uid", 0x40408006, rgba_buff_size, NULL);
+	if (rgba_buff_uid < 0)
+		LOG("Error allocating RGBA buffer: 0x%08X\n", rgba_buff_uid);
+
+	if (rgba_buff_uid >= 0) {
+		ret = ksceKernelGetMemBlockBase(rgba_buff_uid, &rgba_buff_addr);
+		if (ret < 0)
+			LOG("Error getting RGBA buffer addr: 0x%08X\n", ret);
+	}
+
+	stream = 0;
+	uvc_start();
+
+	while (usb_thread_run) {
+		if (stream) {
+			const unsigned int fb_index = 1;
+			SceUID userblock;
+			SceUID kernelblock;
+
+			SceDisplayFrameBufInfo fb;
+			fb.size = sizeof(fb);
+			ret = ksceDisplayGetFrameBufInfoForPid(-1, 0, fb_index, &fb);
+
+			if (fb_index == 1) {
+				userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
+
+				SceKernelAllocMemBlockKernelOpt opt;
+				opt.size = sizeof(opt);
+				opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_MIRROR_BLOCKID | 0x1000000;
+				opt.mirror_blockid = userblock;
+
+				kernelblock = ksceKernelAllocMemBlock("mirror_block",
+					0x40408006,
+					fb.framebuf.pitch * fb.framebuf.height * 4,
+					&opt);
+
+				LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
+
+				void *base = NULL;
+				ret = ksceKernelGetMemBlockBase(kernelblock, &base);
+
+				rgba_buff_addr = base;
+			} else {
+				rgba_buff_addr = fb.framebuf.base;
+			}
+
+			unsigned int pitch = fb.framebuf.pitch;
+
+			if (rgba_buff_addr) {
+				ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
+							 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
+				LOG("ksceJpegEncoderCsc: 0x%08X\n", ret);
+
+				ksceJpegEncoderSetHeaderMode(jpegenc_context, SCE_JPEGENC_HEADER_MODE_MJPEG);
+
+				ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
+				LOG("ksceJpegEncoderEncode: 0x%08X\n", ret);
+
+				//LOG("JPEG: 0x%08X\n", *(unsigned int *)((unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2));
+
+				ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2, ret);
+				if (ret < 0) {
+					LOG("Error sending frame: 0x%08X\n", ret);
+					stream = 0;
+				}
+			}
+
+			fid ^= 1;
+
+			if (fb_index == 1) {
+				ksceKernelFreeMemBlock(userblock);
+				ksceKernelFreeMemBlock(kernelblock);
+			}
+		}
+		/* ksceKernelDelayThread((1000 * 1000) / 15); */
+	}
+
+	ksceKernelFreeMemBlock(rgba_buff_uid);
+
+	uvc_stop();
+
+	return 0;
+}
 
 static int jpegenc_init(unsigned int width, unsigned int height, unsigned int streambuf_size)
 {
@@ -572,10 +626,10 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 
 	framebuf_size = ALIGN(framebuf_size, 256);
 	streambuf_size = ALIGN(streambuf_size, 256);
-	totalbuf_size = ALIGN(framebuf_size + streambuf_size, 1024 * 1024);
+	totalbuf_size = ALIGN(framebuf_size + streambuf_size, 256 * 1024);
 	context_size = ALIGN(ksceJpegEncoderGetContextSize(), 4 * 1024);
 
-	jpegenc_context_uid = ksceKernelAllocMemBlock("uvc_jpegenc_context", SCE_KERNEL_MEMBLOCK_TYPE_RW_UNK0, context_size, NULL);
+	jpegenc_context_uid = ksceKernelAllocMemBlock("uvc_jpegenc_context", SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, context_size, NULL);
 	if (jpegenc_context_uid < 0) {
 		LOG("Error allocating JPEG encoder context: 0x%08X\n", jpegenc_context_uid);
 		return jpegenc_context_uid;
@@ -589,7 +643,7 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 
 	jpegenc_context = jpegenc_context_addr;
 
-	jpegenc_buffer_uid = ksceKernelAllocMemBlock("uvc_jpegenc_buffer", 0x40404006, totalbuf_size, NULL);
+	jpegenc_buffer_uid = ksceKernelAllocMemBlock("uvc_jpegenc_buffer", 0x40408006, totalbuf_size, NULL);
 	if (jpegenc_buffer_uid < 0) {
 		LOG("Error allocating JPEG encoder memory: 0x%08X\n", jpegenc_buffer_uid);
 		ret = jpegenc_buffer_uid;
@@ -643,8 +697,6 @@ int uvc_start(void)
 	int ret;
 	log_reset();
 
-	LOG("uvc_start\n");
-
 	/*LOG("wTotalLength: 0x%02X\n", uvc_udcd_driver.configuration_hi->configDescriptors[0].wTotalLength);
 	LOG("sizeof(interface_association_descriptor): 0x%02X\n", sizeof(interface_association_descriptor));
 	LOG("sizeof(video_control_descriptors): 0x%02X\n", sizeof(video_control_descriptors));
@@ -679,7 +731,7 @@ int uvc_start(void)
 		goto err_activate;
 	}
 
-	ret = jpegenc_init(960, 544, 960 * 544);
+	ret = jpegenc_init(VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT, VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT);
 	if (ret < 0) {
 		LOG("Error initiating the JPEG encoder (0x%08X)\n", ret);
 		goto err_jpegenc_init;
@@ -712,6 +764,10 @@ int uvc_stop(void)
 
 static SceUID SceUdcd_sub_01E1128C_hook_uid = -1;
 static tai_hook_ref_t SceUdcd_sub_01E1128C_ref;
+static SceUID SceSysmemForDriver_BC0A1D60_hook_uid = -1;
+static tai_hook_ref_t SceSysmemForDriver_BC0A1D60_hook_ref;
+static SceUID SceSysmemForDriver_22CBE925_hook_uid = -1;
+static tai_hook_ref_t SceSysmemForDriver_22CBE925_hook_ref;
 
 static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_descriptor, void *desc_data)
 {
@@ -741,6 +797,26 @@ static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_
 	return ret;
 }
 
+int SceSysmemForDriver_BC0A1D60_hook_func(unsigned int perm, void *base, unsigned int size)
+{
+	if (perm == 0x10)
+		perm = 0x01;
+	else if (perm == 0x20)
+		perm = 0x02;
+
+	return TAI_CONTINUE(int, SceSysmemForDriver_BC0A1D60_hook_ref, perm, base, size);
+}
+
+int SceSysmemForDriver_22CBE925_hook_func(unsigned int perm, void *base, unsigned int size)
+{
+	if (perm == 0x10)
+		perm = 0x01;
+	else if (perm == 0x20)
+		perm = 0x02;
+
+	return TAI_CONTINUE(int, SceSysmemForDriver_22CBE925_hook_ref, perm, base, size);
+}
+
 void _start() __attribute__((weak, alias("module_start")));
 
 int module_start(SceSize argc, const void *args)
@@ -759,6 +835,20 @@ int module_start(SceSize argc, const void *args)
 	SceUdcd_sub_01E1128C_hook_uid = taiHookFunctionOffsetForKernel(KERNEL_PID,
 		&SceUdcd_sub_01E1128C_ref, SceUdcd_modinfo.modid, 0,
 		0x01E1128C - 0x01E10000, 1, SceUdcd_sub_01E1128C_hook_func);
+
+	SceSysmemForDriver_BC0A1D60_hook_uid = taiHookFunctionImportForKernel(KERNEL_PID,
+		&SceSysmemForDriver_BC0A1D60_hook_ref,
+		"SceAvcodec",
+		0x6F25E18A, /* SceSysmemForDriver */
+		0xBC0A1D60,
+		SceSysmemForDriver_BC0A1D60_hook_func);
+
+	SceSysmemForDriver_22CBE925_hook_uid = taiHookFunctionImportForKernel(KERNEL_PID,
+		&SceSysmemForDriver_22CBE925_hook_ref,
+		"SceAvcodec",
+		0x6F25E18A, /* SceSysmemForDriver */
+		0x22CBE925,
+		SceSysmemForDriver_22CBE925_hook_func);
 
 	usb_thread_id = ksceKernelCreateThread("uvc_usb_thread", usb_thread,
 					       0x3C, 0x1000, 0, 0x10000, 0);
@@ -819,6 +909,16 @@ int module_stop(SceSize argc, const void *args)
 	if (SceUdcd_sub_01E1128C_hook_uid > 0) {
 		taiHookReleaseForKernel(SceUdcd_sub_01E1128C_hook_uid,
 			SceUdcd_sub_01E1128C_ref);
+	}
+
+	if (SceSysmemForDriver_BC0A1D60_hook_uid > 0) {
+		taiHookReleaseForKernel(SceSysmemForDriver_BC0A1D60_hook_uid,
+			SceSysmemForDriver_BC0A1D60_hook_ref);
+	}
+
+	if (SceSysmemForDriver_22CBE925_hook_uid > 0) {
+		taiHookReleaseForKernel(SceSysmemForDriver_22CBE925_hook_uid,
+			SceSysmemForDriver_22CBE925_hook_ref);
 	}
 
 	unmap_framebuffer();

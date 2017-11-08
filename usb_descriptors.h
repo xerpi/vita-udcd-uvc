@@ -117,7 +117,7 @@ static struct __attribute__((packed)) {
 	},
 };
 
-static
+static const
 unsigned char video_control_specific_endpoint_descriptors[] = {
 	/* Class-specific Interrupt Endpoint Descriptor */
 	0x05,                           /* Descriptor size */
