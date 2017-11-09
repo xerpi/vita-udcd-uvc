@@ -1,12 +1,6 @@
 #include "uvc.h"
 
 /*
- * General options
- */
-
-// #define ENABLE_UNCOMPRESSED 1
-
-/*
  * USB definitions
  */
 
@@ -138,10 +132,6 @@ DECLARE_UVC_FRAME_MJPEG(1);
 
 static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
-#ifdef ENABLE_UNCOMPRESSED
-	struct uvc_format_uncompressed format_uncompressed;
-	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed;
-#endif
 	struct uvc_format_mjpeg format_mjpeg;
 	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
 } video_streaming_descriptors = {
@@ -160,46 +150,11 @@ static struct __attribute__((packed)) {
 		.bControlSize			= 1,
 		.bmaControls			= {{0}, },
 	},
-#ifdef ENABLE_UNCOMPRESSED
-	.format_uncompressed = {
-		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
-		.bFormatIndex			= 1,
-		.bNumFrameDescriptors		= 1,
-		.guidFormat			= UVC_GUID_FORMAT_YUY2,
-		.bBitsPerPixel			= 16,
-		.bDefaultFrameIndex		= 1,
-		.bAspectRatioX			= 8,
-		.bAspectRatioY			= 6,
-		.bmInterfaceFlags		= 0,
-		.bCopyProtect			= 0,
-	},
-	.frame_uncompressed = {
-		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
-		.bFrameIndex			= 1,
-		.bmCapabilities			= 1,
-		.wWidth				= 960,
-		.wHeight			= 544,
-		.dwMinBitRate			= 832000000,
-		.dwMaxBitRate			= 832000000,
-		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
-		.dwDefaultFrameInterval		= 666666,
-		.bFrameIntervalType		= 1,
-		.dwFrameInterval		= {666666},
-	},
-#endif
 	.format_mjpeg = {
 		.bLength			= sizeof(video_streaming_descriptors.format_mjpeg),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FORMAT_MJPEG,
-#ifdef ENABLE_UNCOMPRESSED
-		.bFormatIndex			= 2,
-#else
 		.bFormatIndex			= 1,
-#endif
 		.bNumFrameDescriptors		= 1,
 		.bmFlags			= 0,
 		.bDefaultFrameIndex		= 1,

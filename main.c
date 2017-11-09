@@ -659,7 +659,7 @@ static int usb_thread(SceSize args, void *argp)
 				uint64_t delta_enc = time3 - time2;
 				uint64_t delta_xfer = time4 - time3;
 
-				LOG("CSC: %lld, encoding: %lld, transfer: %lld\n",
+				LOG("CSC: %lldms, JPEG enc: %lldms, transfer: %lldms\n",
 				    delta_csc / 1000, delta_enc / 1000,
 				    delta_xfer / 1000);
 			}
