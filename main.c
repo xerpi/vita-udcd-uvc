@@ -17,6 +17,7 @@
 	do { \
 		char __buffer[256]; \
 		snprintf(__buffer, sizeof(__buffer), s, ##__VA_ARGS__); \
+		LOG_TO_FILE(__buffer); \
 		console_print(__buffer); \
 	} while (0)
 
@@ -25,12 +26,12 @@
 
 #define MAX_PACKET_SIZE			0x200
 #define MAX_PAYLOAD_TRANSFER_SIZE	0x4000
+#define MAX_PAYLOAD_TRANSFER_PACKETS	(MAX_PAYLOAD_TRANSFER_SIZE / MAX_PACKET_SIZE)
 
 #define VIDEO_FRAME_WIDTH		960
 #define VIDEO_FRAME_HEIGHT		544
 
 #define MAX_VIDEO_FRAME_SIZE		(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT)
-#define MAX_VIDEO_FRAME_PACKETS		(MAX_VIDEO_FRAME_SIZE / MAX_PACKET_SIZE)
 
 #define PAYLOAD_HEADER_SIZE		12
 
@@ -62,6 +63,11 @@ static SceUID usb_thread_id;
 static SceUID usb_event_flag_id;
 static int usb_thread_run;
 static int stream;
+
+static SceUID req_list_memblock;
+static void *req_list_addr;
+SceUID req_list_evflag;
+static unsigned int req_list_size;
 
 static int usb_ep0_req_send(const void *data, unsigned int size)
 {
@@ -118,6 +124,117 @@ static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 	return ksceUdcdReqRecv(&req);
 }
 
+static int req_list_init(void)
+{
+	int ret;
+	SceKernelAllocMemBlockKernelOpt opt;
+
+	memset(&opt, 0, sizeof(opt));
+	opt.size = sizeof(opt);
+	opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_ALIGNMENT;
+	opt.alignment = 4 * 1024;
+
+	req_list_memblock = ksceKernelAllocMemBlock("req_list_memblock",
+		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
+		ALIGN(sizeof(SceUdcdDeviceRequest) * MAX_PAYLOAD_TRANSFER_PACKETS, 4 * 1024),
+		&opt);
+	if (req_list_memblock < 0)
+		return req_list_memblock;
+
+	ret = ksceKernelGetMemBlockBase(req_list_memblock, &req_list_addr);
+	if (ret < 0)
+		return ret;
+
+	req_list_evflag = ksceKernelCreateEventFlag("req_list_evflag", 0, 0, NULL);
+	if (req_list_evflag < 0) {
+		ksceKernelFreeMemBlock(req_list_memblock);
+		return req_list_evflag;
+	}
+
+	req_list_size = 0;
+
+	return 0;
+}
+
+static int req_list_fini(void)
+{
+	int ret;
+
+	ret = ksceKernelFreeMemBlock(req_list_memblock);
+	if (ret < 0)
+		return ret;
+
+	ret = ksceKernelDeleteEventFlag(req_list_evflag);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
+static void req_list_reset(void)
+{
+	req_list_size = 0;
+}
+
+static int req_list_enqueue(const void *data, unsigned int size)
+{
+	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)req_list_addr;
+	SceUdcdDeviceRequest *new_req = &reqs[req_list_size];
+
+	if (req_list_size >= MAX_PAYLOAD_TRANSFER_PACKETS)
+		return -1;
+
+	*new_req = (SceUdcdDeviceRequest){
+		.endpoint = &endpoints[3],
+		.data = (void *)data,
+		.unk = 0,
+		.size = size,
+		.isControlRequest = 0,
+		.onComplete = NULL,
+		.transmitted = 0,
+		.returnCode = 0,
+		.next = NULL,
+		.unused = NULL,
+		.physicalAddress = NULL
+	};
+
+	if (req_list_size > 0)
+		reqs[req_list_size - 1].next = new_req;
+
+	req_list_size++;
+
+	return 0;
+}
+
+static void req_list_submit_on_complete(SceUdcdDeviceRequest *req)
+{
+	ksceKernelSetEventFlag(req_list_evflag, 1);
+}
+
+static int req_list_submit(void)
+{
+	int ret;
+	unsigned int out_bits;
+	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)req_list_addr;
+	SceUdcdDeviceRequest *cur_req = &reqs[req_list_size - 1];
+
+	if (req_list_size == 0)
+		return 0;
+
+	cur_req->onComplete = req_list_submit_on_complete;
+
+	ksceKernelCpuDcacheAndL2WritebackRange(reqs, sizeof(*reqs) * req_list_size);
+
+	ret = ksceUdcdReqSend(reqs);
+	if (ret < 0)
+		return ret;
+
+	ret = ksceKernelWaitEventFlag(req_list_evflag, 1,
+				      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
+				      &out_bits, NULL);
+	return ret;
+}
+
 static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *req)
 {
 	struct uvc_streaming_control *streaming_control =
@@ -142,8 +259,8 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 
 			LOG("Commit, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
 
-                        /* TODO: Start streaming properly */
-                        stream = 1;
+			stream = 1;
+			ksceKernelSetEventFlag(usb_event_flag_id, 1);
 			break;
 		}
 		break;
@@ -384,75 +501,6 @@ static void *jpegenc_context_addr;
 static SceUID jpegenc_buffer_uid;
 static void *jpegenc_buffer_addr;
 
-static SceUID udcd_video_reqs_memblock;
-static void *udcd_video_reqs_addr;
-
-static unsigned int req_list_size;
-
-static void req_list_reset(void)
-{
-	req_list_size = 0;
-}
-
-static int req_list_enqueue(const void *data, unsigned int size)
-{
-	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)udcd_video_reqs_addr;
-	SceUdcdDeviceRequest *new_req = &reqs[req_list_size];
-
-	if (req_list_size >= MAX_VIDEO_FRAME_PACKETS - 1)
-		return -1;
-
-	*new_req = (SceUdcdDeviceRequest){
-		.endpoint = &endpoints[3],
-		.data = (void *)data,
-		.unk = 0,
-		.size = size,
-		.isControlRequest = 0,
-		.onComplete = NULL,
-		.transmitted = 0,
-		.returnCode = 0,
-		.next = NULL,
-		.unused = NULL,
-		.physicalAddress = NULL
-	};
-
-	if (req_list_size > 0)
-		reqs[req_list_size - 1].next = new_req;
-
-	req_list_size++;
-
-	return 0;
-}
-
-static void req_list_submit_on_complete(SceUdcdDeviceRequest *req)
-{
-	ksceKernelSetEventFlag(usb_event_flag_id, 1);
-}
-
-static int req_list_submit(void)
-{
-	int ret;
-	unsigned int out_bits;
-	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)udcd_video_reqs_addr;
-	SceUdcdDeviceRequest *cur_req = &reqs[req_list_size - 1];
-
-	if (req_list_size == 0)
-		return 0;
-
-	cur_req->onComplete = req_list_submit_on_complete;
-
-	ksceKernelCpuDcacheAndL2WritebackRange(reqs, sizeof(*reqs) * req_list_size);
-
-	ret = ksceUdcdReqSend(reqs);
-	if (ret < 0)
-		return ret;
-
-	ret = ksceKernelWaitEventFlag(usb_event_flag_id, 1,
-				      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
-				      &out_bits, NULL);
-	return ret;
-}
-
 static unsigned int uvc_payload_transfer(const unsigned char *data,
 					 unsigned int transfer_size,
 					 int fid, int eof,
@@ -573,20 +621,8 @@ static int usb_thread(SceSize args, void *argp)
 	int ret;
 	SceUID display_vblank_cb_uid;
 	int fid = 0;
-
-	SceUID rgba_buff_uid;
+	SceUID cur_pid = ksceKernelGetProcessId();
 	void *rgba_buff_addr = NULL;
-	unsigned int rgba_buff_size = ALIGN(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 4, 256 * 1024);
-
-	rgba_buff_uid = ksceKernelAllocMemBlock("rgba_buff_uid", 0x40408006, rgba_buff_size, NULL);
-	if (rgba_buff_uid < 0)
-		LOG("Error allocating RGBA buffer: 0x%08X\n", rgba_buff_uid);
-
-	if (rgba_buff_uid >= 0) {
-		ret = ksceKernelGetMemBlockBase(rgba_buff_uid, &rgba_buff_addr);
-		if (ret < 0)
-			LOG("Error getting RGBA buffer addr: 0x%08X\n", ret);
-	}
 
 	stream = 0;
 	uvc_start();
@@ -598,7 +634,7 @@ static int usb_thread(SceSize args, void *argp)
 
 	while (usb_thread_run) {
 		if (stream) {
-			const unsigned int fb_index = 1;
+			const unsigned int fb_index = 0;
 			SceUID userblock;
 			SceUID kernelblock;
 
@@ -606,8 +642,14 @@ static int usb_thread(SceSize args, void *argp)
 			fb.size = sizeof(fb);
 			ret = ksceDisplayGetFrameBufInfoForPid(-1, 0, fb_index, &fb);
 
-			if (fb_index == 1) {
+			if (fb.pid != cur_pid) {
+				LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
+
 				userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
+				if (userblock < 0)
+					continue;
+
+				LOG("userblock: 0x%08X\n", userblock);
 
 				SceKernelAllocMemBlockKernelOpt opt;
 				opt.size = sizeof(opt);
@@ -618,11 +660,17 @@ static int usb_thread(SceSize args, void *argp)
 					SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
 					fb.framebuf.pitch * fb.framebuf.height * 4,
 					&opt);
+				if (kernelblock < 0)
+					continue;
 
-				//LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
+				LOG("kernelblock: 0x%08X\n", kernelblock);
 
 				void *base = NULL;
 				ret = ksceKernelGetMemBlockBase(kernelblock, &base);
+				if (ret < 0) {
+					ksceKernelFreeMemBlock(kernelblock);
+					continue;
+				}
 
 				rgba_buff_addr = base;
 			} else {
@@ -666,18 +714,23 @@ static int usb_thread(SceSize args, void *argp)
 
 			fid ^= 1;
 
-			if (fb_index == 1) {
-				ksceKernelFreeMemBlock(userblock);
-				ksceKernelFreeMemBlock(kernelblock);
+			if (fb.pid != cur_pid) {
+				/*ret = ksceKernelFreeMemBlock(userblock);
+				LOG("Free userblock: 0x%08X\n", ret);*/
+				ret = ksceKernelFreeMemBlock(kernelblock);
+				LOG("Free kernelblock: 0x%08X\n", ret);
 			}
+		} else {
+			unsigned int out_bits;
+
+			ksceKernelWaitEventFlag(usb_event_flag_id, 1,
+				      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
+				      &out_bits, NULL);
 		}
-		/* ksceKernelDelayThread((1000 * 1000) / 15); */
 	}
 
 	ksceDisplayUnregisterVblankStartCallback(display_vblank_cb_uid);
 	ksceKernelDeleteCallback(display_vblank_cb_uid);
-
-	ksceKernelFreeMemBlock(rgba_buff_uid);
 
 	uvc_stop();
 
@@ -698,7 +751,8 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 	totalbuf_size = ALIGN(framebuf_size + streambuf_size, 256 * 1024);
 	context_size = ALIGN(ksceJpegEncoderGetContextSize(), 4 * 1024);
 
-	jpegenc_context_uid = ksceKernelAllocMemBlock("uvc_jpegenc_context", SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, context_size, NULL);
+	jpegenc_context_uid = ksceKernelAllocMemBlock("uvc_jpegenc_context",
+		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, context_size, NULL);
 	if (jpegenc_context_uid < 0) {
 		LOG("Error allocating JPEG encoder context: 0x%08X\n", jpegenc_context_uid);
 		return jpegenc_context_uid;
@@ -712,7 +766,25 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 
 	jpegenc_context = jpegenc_context_addr;
 
-	jpegenc_buffer_uid = ksceKernelAllocMemBlock("uvc_jpegenc_buffer", 0x40408006, totalbuf_size, NULL);
+	const int use_cdram = 1;
+	SceKernelAllocMemBlockKernelOpt opt;
+	SceKernelMemBlockType type;
+	SceKernelAllocMemBlockKernelOpt *optp;
+
+	if (use_cdram) {
+		type = 0x40408006;
+		optp = NULL;
+	} else {
+		type = 0x30808006;
+		memset(&opt, 0, sizeof(opt));
+		opt.size = sizeof(opt);
+		opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_PHYCONT |
+			   SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_ALIGNMENT;
+		opt.alignment = 4 * 1024;
+		optp = &opt;
+	}
+
+	jpegenc_buffer_uid = ksceKernelAllocMemBlock("uvc_jpegenc_buffer", type, totalbuf_size, optp);
 	if (jpegenc_buffer_uid < 0) {
 		LOG("Error allocating JPEG encoder memory: 0x%08X\n", jpegenc_buffer_uid);
 		ret = jpegenc_buffer_uid;
@@ -731,6 +803,32 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 	if (ret < 0) {
 		LOG("Error initializing the JPEG encoder: 0x%08X\n", ret);
 		goto err_free_buff;
+	}
+
+	if (!use_cdram) {
+		struct {
+			void *outBuffer;
+			void *outBufferEnd;
+			uint32_t data008;
+			uint8_t data00C;
+			uint8_t compressionRatio;
+			uint8_t data00E;
+			uint8_t data00F;
+			uint32_t data010;
+			uint16_t validRegionWidth;
+			uint16_t validRegionHeight;
+			uint16_t inWidth;
+			uint16_t inHeight;
+			uint8_t pixelformat;
+			uint8_t headerMode;
+			uint8_t unk01E;
+			uint8_t unk01F;
+			uint32_t unk020;
+			uint32_t option;
+			uint32_t data028[(0x180 - 0x028) / 4];
+		} *context_impl = jpegenc_context;
+
+		context_impl->option = 1;
 	}
 
 	ksceJpegEncoderSetCompressionRatio(jpegenc_context, 64);
@@ -936,18 +1034,7 @@ int module_start(SceSize argc, const void *args)
 		goto err_destroy_thread;
 	}
 
-	SceKernelAllocMemBlockKernelOpt opt;
-	memset(&opt, 0, sizeof(opt));
-	opt.size = sizeof(opt);
-	opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_ALIGNMENT;
-	opt.alignment = 4 * 1024;
-
-	udcd_video_reqs_memblock = ksceKernelAllocMemBlock("udcd_video_reqs",
-		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
-		ALIGN(sizeof(SceUdcdDeviceRequest) * MAX_VIDEO_FRAME_PACKETS, 4 * 1024),
-		&opt);
-
-	ksceKernelGetMemBlockBase(udcd_video_reqs_memblock, &udcd_video_reqs_addr);
+	req_list_init();
 
 	ret = ksceUdcdRegister(&uvc_udcd_driver);
 	if (ret < 0) {
@@ -983,7 +1070,7 @@ int module_stop(SceSize argc, const void *args)
 
 	ksceKernelWaitThreadEnd(usb_thread_id, NULL, NULL);
 
-	ksceKernelFreeMemBlock(udcd_video_reqs_memblock);
+	req_list_fini();
 	ksceKernelDeleteEventFlag(usb_event_flag_id);
 	ksceKernelDeleteThread(usb_thread_id);
 

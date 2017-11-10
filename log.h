@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define LOG_PATH "ux0:dump/"
-#define LOG_FILE LOG_PATH "regsdumper_log.txt"
+#define LOG_FILE LOG_PATH "udcd_uvc_log.txt"
 
 void log_reset();
 void log_write(const char *buffer, size_t length);
