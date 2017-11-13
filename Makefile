@@ -16,8 +16,11 @@ DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx
 
+release: CFLAGS += -DRELEASE
+release: $(TARGET).skprx
+
 %.skprx: %.velf
-	vita-make-fself $< $@
+	vita-make-fself -c $< $@
 
 %.velf: %.elf
 	vita-elf-create -e $(TARGET).yml $< $@
@@ -35,6 +38,10 @@ clean:
 
 send: $(TARGET).skprx
 	curl -T $(TARGET).skprx ftp://$(PSVITAIP):1337/ux0:/data/tai/kplugin.skprx
+	@echo "Sent."
+
+taisend: $(TARGET).skprx
+	curl -T $(TARGET).skprx ftp://$(PSVITAIP):1337/ux0:/tai/$(TARGET).skprx
 	@echo "Sent."
 
 -include $(DEPS)

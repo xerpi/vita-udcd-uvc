@@ -13,6 +13,9 @@
 #include "draw.h"
 #include <taihen.h>
 
+#ifdef RELEASE
+#define LOG(...) (void)0
+#else
 #define LOG(s, ...) \
 	do { \
 		char __buffer[256]; \
@@ -20,6 +23,7 @@
 		LOG_TO_FILE(__buffer); \
 		console_print(__buffer); \
 	} while (0)
+#endif
 
 #define UVC_DRIVER_NAME	"VITAUVC00"
 #define UVC_USB_PID	0x1337
@@ -766,7 +770,7 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 
 	jpegenc_context = jpegenc_context_addr;
 
-	const int use_cdram = 1;
+	const int use_cdram = 0;
 	SceKernelAllocMemBlockKernelOpt opt;
 	SceKernelMemBlockType type;
 	SceKernelAllocMemBlockKernelOpt *optp;
@@ -865,12 +869,10 @@ static int jpegenc_term()
 int uvc_start(void)
 {
 	int ret;
-	log_reset();
 
-	/*LOG("wTotalLength: 0x%02X\n", uvc_udcd_driver.configuration_hi->configDescriptors[0].wTotalLength);
-	LOG("sizeof(interface_association_descriptor): 0x%02X\n", sizeof(interface_association_descriptor));
-	LOG("sizeof(video_control_descriptors): 0x%02X\n", sizeof(video_control_descriptors));
-	LOG("sizeof(video_streaming_descriptors): 0x%02X\n", sizeof(video_streaming_descriptors));*/
+#ifdef RELEASE
+	ksceKernelDelayThread(5 * 1000 * 1000);
+#endif
 
 	ret = ksceUdcdDeactivate();
 	if (ret < 0 && ret != SCE_UDCD_ERROR_INVALID_ARGUMENT) {
@@ -996,7 +998,10 @@ int module_start(SceSize argc, const void *args)
 
 	log_reset();
 
+#ifndef RELEASE
 	map_framebuffer();
+#endif
+
 	LOG("udcd_uvc by xerpi\n");
 
 	SceUdcd_modinfo.size = sizeof(SceUdcd_modinfo);
@@ -1068,11 +1073,12 @@ int module_stop(SceSize argc, const void *args)
 {
 	usb_thread_run = 0;
 
+	ksceKernelDeleteEventFlag(usb_event_flag_id);
+
 	ksceKernelWaitThreadEnd(usb_thread_id, NULL, NULL);
+	ksceKernelDeleteThread(usb_thread_id);
 
 	req_list_fini();
-	ksceKernelDeleteEventFlag(usb_event_flag_id);
-	ksceKernelDeleteThread(usb_thread_id);
 
 	ksceUdcdDeactivate();
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);

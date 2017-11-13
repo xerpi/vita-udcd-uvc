@@ -18,6 +18,7 @@ static int console_y = 16;
 
 static SceDisplayFrameBuf fb;
 static SceUID fb_uid = -1;
+static int fb_initialized = 0;
 
 int map_framebuffer()
 {
@@ -45,6 +46,8 @@ int map_framebuffer()
 	fb.width       = SCREEN_W;
 	fb.height      = SCREEN_H;
 
+	fb_initialized = 1;
+
 	clear_screen();
 
 	return ksceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
@@ -54,12 +57,17 @@ void unmap_framebuffer(void)
 {
 	if (fb_uid >= 0)
 		ksceKernelFreeMemBlock(fb_uid);
+
+	fb_initialized = 0;
 }
 
 typedef unsigned int u32;
 void fill_fb(void *addr, unsigned int color)
 {
 	int i, j;
+
+	if (!fb_initialized)
+		return;
 
 	for (i = 0; i < SCREEN_H; i++) {
 		for (j = 0; j < SCREEN_PITCH; j++) {
@@ -70,6 +78,9 @@ void fill_fb(void *addr, unsigned int color)
 
 void clear_screen()
 {
+	if (!fb_initialized)
+		return;
+
 	memset(fb.base, 0x00, SCREEN_PITCH * SCREEN_H * 4);
 	//fill_fb(fb.base, RGBA8(0x80, 0x80, 0x80, 0xFF));
 	ksceKernelCpuDcacheWritebackRange(fb.base, SCREEN_PITCH * SCREEN_H * 4);
@@ -77,6 +88,9 @@ void clear_screen()
 
 void draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
+	if (!fb_initialized)
+		return;
+
 	uint32_t *p = &((uint32_t *)fb.base)[x + y * fb.pitch];
 	*p = color;
 	ksceKernelCpuDcacheWritebackRange(p, sizeof(*p));
@@ -84,6 +98,9 @@ void draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 
 void draw_rectangle(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
 {
+	if (!fb_initialized)
+		return;
+
 	int i, j;
 	for (i = 0; i < h; i++) {
 		for (j = 0; j < w; j++) {
@@ -94,6 +111,9 @@ void draw_rectangle(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t col
 
 void draw_circle(uint32_t x, uint32_t y, uint32_t radius, uint32_t color)
 {
+	if (!fb_initialized)
+		return;
+
 	int r2 = radius * radius;
 	int area = r2 << 2;
 	int rr = radius << 1;
@@ -111,6 +131,9 @@ void draw_circle(uint32_t x, uint32_t y, uint32_t radius, uint32_t color)
 
 void font_draw_char(int x, int y, uint32_t color, char c)
 {
+	if (!fb_initialized)
+		return;
+
 	unsigned char *font = (unsigned char *)(msx_font + (c - (uint32_t)' ') * 8);
 	int i, j, pos_x, pos_y;
 	for (i = 0; i < 8; ++i) {
@@ -130,6 +153,9 @@ void font_draw_char(int x, int y, uint32_t color, char c)
 
 void font_draw_string(int x, int y, uint32_t color, const char *string)
 {
+	if (!fb_initialized)
+		return;
+
 	if (string == NULL) return;
 
 	int startx = x;
@@ -153,6 +179,9 @@ void font_draw_string(int x, int y, uint32_t color, const char *string)
 
 void console_print(const char *s)
 {
+	if (!fb_initialized)
+		return;
+
 	if (!s)
 		return;
 
