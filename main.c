@@ -25,6 +25,8 @@
 	} while (0)
 #endif
 
+extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
+
 #define UVC_DRIVER_NAME	"VITAUVC00"
 #define UVC_USB_PID	0x1337
 
@@ -638,7 +640,7 @@ static int usb_thread(SceSize args, void *argp)
 
 	while (usb_thread_run) {
 		if (stream) {
-			const unsigned int fb_index = 0;
+			unsigned int fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
 			SceUID userblock;
 			SceUID kernelblock;
 

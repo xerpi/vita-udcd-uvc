@@ -5,7 +5,7 @@
 #ifndef DRAW_H
 #define DRAW_H
 
-#include <psp2/types.h>
+#include <psp2kern/types.h>
 
 #define RGBA8(r, g, b, a)      ((((a)&0xFF)<<24) | (((b)&0xFF)<<16) | (((g)&0xFF)<<8) | (((r)&0xFF)<<0))
 
