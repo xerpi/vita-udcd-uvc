@@ -649,27 +649,29 @@ static int usb_thread(SceSize args, void *argp)
 			ret = ksceDisplayGetFrameBufInfoForPid(-1, 0, fb_index, &fb);
 
 			if (fb.pid != cur_pid) {
-				LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
+				// LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
 
 				userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
 				if (userblock < 0)
 					continue;
-
-				LOG("userblock: 0x%08X\n", userblock);
 
 				SceKernelAllocMemBlockKernelOpt opt;
 				opt.size = sizeof(opt);
 				opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_MIRROR_BLOCKID | 0x1000000;
 				opt.mirror_blockid = userblock;
 
+				/*
+				 * It looks like when creating a memory block mirror,
+				 * extra memory will be allocated if size != 0.
+				 */
 				kernelblock = ksceKernelAllocMemBlock("mirror_block",
-					SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
-					fb.framebuf.pitch * fb.framebuf.height * 4,
-					&opt);
-				if (kernelblock < 0)
+					SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, 0, &opt);
+				if (kernelblock < 0) {
+					LOG("Error mirroring block: 0x%08X\n", kernelblock);
 					continue;
+				}
 
-				LOG("kernelblock: 0x%08X\n", kernelblock);
+				LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
 
 				void *base = NULL;
 				ret = ksceKernelGetMemBlockBase(kernelblock, &base);
@@ -691,13 +693,13 @@ static int usb_thread(SceSize args, void *argp)
 				ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
 							 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
 				if (ret < 0)
-					LOG("ksceJpegEncoderCsc: 0x%08X\n", ret);
+					LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
 
 				uint64_t time2 = ksceKernelGetSystemTimeWide();
 
 				ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
 				if (ret < 0)
-					LOG("ksceJpegEncoderEncode: 0x%08X\n", ret);
+					LOG("Error ksceJpegEncoderEncode: 0x%08X\n", ret);
 
 				uint64_t time3 = ksceKernelGetSystemTimeWide();
 
@@ -721,10 +723,9 @@ static int usb_thread(SceSize args, void *argp)
 			fid ^= 1;
 
 			if (fb.pid != cur_pid) {
-				/*ret = ksceKernelFreeMemBlock(userblock);
-				LOG("Free userblock: 0x%08X\n", ret);*/
 				ret = ksceKernelFreeMemBlock(kernelblock);
-				LOG("Free kernelblock: 0x%08X\n", ret);
+				if (ret < 0)
+					LOG("Error free kernelblock: 0x%08X\n", ret);
 			}
 		} else {
 			unsigned int out_bits;
