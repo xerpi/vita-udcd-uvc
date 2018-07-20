@@ -27,17 +27,18 @@
 
 extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
 
-#define UVC_DRIVER_NAME	"VITAUVC00"
-#define UVC_USB_PID	0x1337
+#define CEILING(x, y)			(((x) + (y) - 1) / (y))
+
+#define UVC_DRIVER_NAME			"VITAUVC00"
+#define UVC_USB_PID			0x1337
 
 #define MAX_PACKET_SIZE			0x200
 #define MAX_PAYLOAD_TRANSFER_SIZE	0x4000
-#define MAX_PAYLOAD_TRANSFER_PACKETS	(MAX_PAYLOAD_TRANSFER_SIZE / MAX_PACKET_SIZE)
+#define MAX_PAYLOAD_TRANSFER_PACKETS	CEILING(MAX_PAYLOAD_TRANSFER_SIZE, MAX_PACKET_SIZE)
 
 #define VIDEO_FRAME_WIDTH		960
 #define VIDEO_FRAME_HEIGHT		544
-
-#define MAX_VIDEO_FRAME_SIZE		(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT)
+#define VIDEO_FRAME_SIZE		(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT)
 
 #define PAYLOAD_HEADER_SIZE		12
 
@@ -51,7 +52,7 @@ static struct uvc_streaming_control uvc_probe_control_setting = {
 	.wCompQuality			= 0,
 	.wCompWindowSize		= 0,
 	.wDelay				= 0,
-	.dwMaxVideoFrameSize		= MAX_VIDEO_FRAME_SIZE,
+	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE,
 	.dwMaxPayloadTransferSize	= MAX_PAYLOAD_TRANSFER_SIZE,
 	.dwClockFrequency		= 384000000,
 	.bmFramingInfo			= 0,
@@ -517,6 +518,7 @@ static unsigned int uvc_payload_transfer(const unsigned char *data,
 	int ret;
 	unsigned int pend_size = transfer_size;
 	unsigned int offset = 0;
+	unsigned int first_size;
 
 	unsigned char payload_header[PAYLOAD_HEADER_SIZE] = {
 		PAYLOAD_HEADER_SIZE,                /* Header Length */
@@ -532,48 +534,36 @@ static unsigned int uvc_payload_transfer(const unsigned char *data,
 
 	req_list_reset();
 
+	if (transfer_size > MAX_PACKET_SIZE)
+		first_size = MAX_PACKET_SIZE;
+	else
+		first_size = transfer_size;
+
 	/*
 	 * The first packet of the transfer includes the payload header.
 	 */
 	memcpy(&packet[0], payload_header, PAYLOAD_HEADER_SIZE);
+	memcpy(&packet[PAYLOAD_HEADER_SIZE], &data[offset],
+	       first_size - PAYLOAD_HEADER_SIZE);
+	ksceKernelCpuDcacheAndL2WritebackRange(packet, first_size);
+	ret = req_list_enqueue(packet, first_size);
+	if (ret < 0)
+		return ret;
 
-	if (transfer_size >= MAX_PACKET_SIZE) {
-		memcpy(&packet[PAYLOAD_HEADER_SIZE], &data[offset],
-		       MAX_PACKET_SIZE - PAYLOAD_HEADER_SIZE);
-		ksceKernelCpuDcacheAndL2WritebackRange(packet, MAX_PACKET_SIZE);
-		ret = req_list_enqueue(packet, MAX_PACKET_SIZE);
+	pend_size -= first_size;
+	offset += first_size - PAYLOAD_HEADER_SIZE;
+
+	while (pend_size > 0) {
+		unsigned int send_size = MAX_PACKET_SIZE;
+		if (pend_size < MAX_PACKET_SIZE)
+			send_size = pend_size;
+
+		ret = req_list_enqueue(&data[offset], send_size);
 		if (ret < 0)
 			return ret;
 
-		pend_size -= MAX_PACKET_SIZE;
-		offset += MAX_PACKET_SIZE - PAYLOAD_HEADER_SIZE;
-	} else {
-		memcpy(&packet[PAYLOAD_HEADER_SIZE], &data[offset],
-		       transfer_size - PAYLOAD_HEADER_SIZE);
-		ksceKernelCpuDcacheAndL2WritebackRange(packet, transfer_size);
-		ret = req_list_enqueue(packet, transfer_size);
-		if (ret < 0)
-			return ret;
-
-		pend_size -= transfer_size;
-		offset += transfer_size - PAYLOAD_HEADER_SIZE;
-	}
-
-	while (pend_size >= MAX_PACKET_SIZE) {
-		ret = req_list_enqueue(&data[offset], MAX_PACKET_SIZE);
-		if (ret < 0)
-			return ret;
-
-		pend_size -= MAX_PACKET_SIZE;
-		offset += MAX_PACKET_SIZE;
-	}
-
-	if (pend_size > 0) {
-		ret = req_list_enqueue(&data[offset], pend_size);
-		if (ret < 0)
-			return ret;
-
-		offset += pend_size;
+		pend_size -= send_size;
+		offset += send_size;
 	}
 
 	if (written)
@@ -589,6 +579,9 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 	unsigned int offset = 0;
 	unsigned int pend_size = size;
 
+	/*
+	 * Send all the transfers but the last one.
+	 */
 	while (pend_size + PAYLOAD_HEADER_SIZE > MAX_PAYLOAD_TRANSFER_SIZE) {
 		ret = uvc_payload_transfer(&data[offset],
 					   MAX_PAYLOAD_TRANSFER_SIZE,
@@ -600,14 +593,14 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 		offset += written;
 	}
 
-	if (pend_size > 0) {
-		ret = uvc_payload_transfer(&data[offset],
-					   pend_size + PAYLOAD_HEADER_SIZE,
-					   fid, 1, &written);
-		if (ret < 0)
-			return ret;
-
-	}
+	/*
+	 * Last transfer of the frame has End of Frame (EOF) = 1.
+	 */
+	ret = uvc_payload_transfer(&data[offset],
+				   pend_size + PAYLOAD_HEADER_SIZE,
+				   fid, 1, &written);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }

@@ -9,10 +9,7 @@ LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
-AS	= $(PREFIX)-as
-OBJCOPY	= $(PREFIX)-objcopy
 CFLAGS	= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork
-ASFLAGS	=
 DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx
