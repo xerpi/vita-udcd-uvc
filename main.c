@@ -66,9 +66,9 @@ static struct {
 	SceUdcdEP0DeviceRequest ep0_req;
 } pending_recv;
 
-static SceUID usb_thread_id;
-static SceUID usb_event_flag_id;
-static int usb_thread_run;
+static SceUID uvc_thread_id;
+static SceUID uvc_event_flag_id;
+static int uvc_thread_run;
 static int stream;
 
 static SceUID req_list_memblock;
@@ -267,7 +267,7 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 			LOG("Commit, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
 
 			stream = 1;
-			ksceKernelSetEventFlag(usb_event_flag_id, 1);
+			ksceKernelSetEventFlag(uvc_event_flag_id, 1);
 			break;
 		}
 		break;
@@ -610,12 +610,12 @@ int uvc_stop(void);
 
 static int display_vblank_cb_func(int notifyId, int notifyCount, int notifyArg, void *common)
 {
-	LOG("Got VBlank!\n");
+	/* TODO */
 
 	return 0;
 }
 
-static int usb_thread(SceSize args, void *argp)
+static int uvc_thread(SceSize args, void *argp)
 {
 	int ret;
 	SceUID display_vblank_cb_uid;
@@ -631,7 +631,7 @@ static int usb_thread(SceSize args, void *argp)
 
 	ksceDisplayRegisterVblankStartCallback(display_vblank_cb_uid);
 
-	while (usb_thread_run) {
+	while (uvc_thread_run) {
 		if (stream) {
 			unsigned int fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
 			SceUID userblock;
@@ -723,7 +723,7 @@ static int usb_thread(SceSize args, void *argp)
 		} else {
 			unsigned int out_bits;
 
-			ksceKernelWaitEventFlag(usb_event_flag_id, 1,
+			ksceKernelWaitEventFlagCB(uvc_event_flag_id, 1,
 				      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
 				      &out_bits, NULL);
 		}
@@ -1021,17 +1021,17 @@ int module_start(SceSize argc, const void *args)
 		0x22CBE925,
 		SceSysmemForDriver_22CBE925_hook_func);
 
-	usb_thread_id = ksceKernelCreateThread("uvc_usb_thread", usb_thread,
+	uvc_thread_id = ksceKernelCreateThread("uvc_thread", uvc_thread,
 					       0x3C, 0x1000, 0, 0x10000, 0);
-	if (usb_thread_id < 0) {
-		LOG("Error creating the USB thread (0x%08X)\n", usb_thread_id);
+	if (uvc_thread_id < 0) {
+		LOG("Error creating the UVC thread (0x%08X)\n", uvc_thread_id);
 		goto err_return;
 	}
 
-	usb_event_flag_id = ksceKernelCreateEventFlag("uvc_event_flag", 0,
+	uvc_event_flag_id = ksceKernelCreateEventFlag("uvc_event_flag", 0,
 						      0, NULL);
-	if (usb_event_flag_id < 0) {
-		LOG("Error creating the USB event flag (0x%08X)\n", usb_event_flag_id);
+	if (uvc_event_flag_id < 0) {
+		LOG("Error creating the UVC event flag (0x%08X)\n", uvc_event_flag_id);
 		goto err_destroy_thread;
 	}
 
@@ -1043,11 +1043,11 @@ int module_start(SceSize argc, const void *args)
 		goto err_delete_event_flag;
 	}
 
-	usb_thread_run = 1;
+	uvc_thread_run = 1;
 
-	ret = ksceKernelStartThread(usb_thread_id, 0, NULL);
+	ret = ksceKernelStartThread(uvc_thread_id, 0, NULL);
 	if (ret < 0) {
-		LOG("Error starting the USB thread (0x%08X)\n", ret);
+		LOG("Error starting the UVC thread (0x%08X)\n", ret);
 		goto err_unregister;
 	}
 
@@ -1058,21 +1058,22 @@ int module_start(SceSize argc, const void *args)
 err_unregister:
 	ksceUdcdUnregister(&uvc_udcd_driver);
 err_delete_event_flag:
-	ksceKernelDeleteEventFlag(usb_event_flag_id);
+	ksceKernelDeleteEventFlag(uvc_event_flag_id);
 err_destroy_thread:
-	ksceKernelDeleteThread(usb_thread_id);
+	ksceKernelDeleteThread(uvc_thread_id);
 err_return:
 	return SCE_KERNEL_START_FAILED;
 }
 
 int module_stop(SceSize argc, const void *args)
 {
-	usb_thread_run = 0;
+	uvc_thread_run = 0;
 
-	ksceKernelDeleteEventFlag(usb_event_flag_id);
+	ksceKernelSetEventFlag(uvc_event_flag_id, 1);
+	ksceKernelWaitThreadEnd(uvc_thread_id, NULL, NULL);
 
-	ksceKernelWaitThreadEnd(usb_thread_id, NULL, NULL);
-	ksceKernelDeleteThread(usb_thread_id);
+	ksceKernelDeleteEventFlag(uvc_event_flag_id);
+	ksceKernelDeleteThread(uvc_thread_id);
 
 	req_list_fini();
 
