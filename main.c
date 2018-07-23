@@ -608,20 +608,125 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 int uvc_start(void);
 int uvc_stop(void);
 
+static int send_frame(void)
+{
+	static int fid = 0;
+
+	int ret;
+	SceUID cur_pid;
+	void *rgba_buff_addr;
+	unsigned int fb_index;
+	SceUID userblock;
+	SceUID kernelblock;
+	SceDisplayFrameBufInfo fb;
+
+	cur_pid = ksceKernelGetProcessId();
+	rgba_buff_addr = NULL;
+
+	fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
+
+	memset(&fb, 0, sizeof(fb));
+	fb.size = sizeof(fb);
+	ret = ksceDisplayGetFrameBufInfoForPid(-1, 0, fb_index, &fb);
+	if (ret < 0)
+		return ret;
+
+	if (fb.pid != cur_pid) {
+		// LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
+
+		userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
+		if (userblock < 0)
+			return userblock;
+
+		SceKernelAllocMemBlockKernelOpt opt;
+		opt.size = sizeof(opt);
+		opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_MIRROR_BLOCKID | 0x1000000;
+		opt.mirror_blockid = userblock;
+
+		/*
+		 * It looks like when creating a memory block mirror,
+		 * extra memory will be allocated if size != 0.
+		 */
+		kernelblock = ksceKernelAllocMemBlock("mirror_block",
+			SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, 0, &opt);
+		if (kernelblock < 0) {
+			LOG("Error mirroring block: 0x%08X\n", kernelblock);
+			return kernelblock;
+		}
+
+		LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
+
+		void *base = NULL;
+		ret = ksceKernelGetMemBlockBase(kernelblock, &base);
+		if (ret < 0) {
+			ksceKernelFreeMemBlock(kernelblock);
+			return ret;
+		}
+
+		rgba_buff_addr = base;
+	} else {
+		rgba_buff_addr = fb.framebuf.base;
+	}
+
+	unsigned int pitch = fb.framebuf.pitch;
+
+	if (rgba_buff_addr) {
+		uint64_t time1 = ksceKernelGetSystemTimeWide();
+
+		ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
+					 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
+		if (ret < 0)
+			LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
+
+		uint64_t time2 = ksceKernelGetSystemTimeWide();
+
+		ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
+		if (ret < 0)
+			LOG("Error ksceJpegEncoderEncode: 0x%08X\n", ret);
+
+		uint64_t time3 = ksceKernelGetSystemTimeWide();
+
+		ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2, ret);
+		if (ret < 0) {
+			LOG("Error sending frame: 0x%08X\n", ret);
+			stream = 0;
+		}
+
+		uint64_t time4 = ksceKernelGetSystemTimeWide();
+
+		uint64_t delta_csc = time2 - time1;
+		uint64_t delta_enc = time3 - time2;
+		uint64_t delta_xfer = time4 - time3;
+
+		LOG("CSC: %lldms, JPEG enc: %lldms, transfer: %lldms\n",
+		    delta_csc / 1000, delta_enc / 1000,
+		    delta_xfer / 1000);
+	}
+
+	fid ^= 1;
+
+	if (fb.pid != cur_pid) {
+		ret = ksceKernelFreeMemBlock(kernelblock);
+		if (ret < 0)
+			LOG("Error free kernelblock: 0x%08X\n", ret);
+	}
+
+	return 0;
+}
+
 static int display_vblank_cb_func(int notifyId, int notifyCount, int notifyArg, void *common)
 {
-	/* TODO */
+	/*LOG("VBlank: %d, %d, %d, %p\n", notifyId, notifyCount, notifyArg, common);*/
+
+	if (stream)
+		return send_frame();
 
 	return 0;
 }
 
 static int uvc_thread(SceSize args, void *argp)
 {
-	int ret;
 	SceUID display_vblank_cb_uid;
-	int fid = 0;
-	SceUID cur_pid = ksceKernelGetProcessId();
-	void *rgba_buff_addr = NULL;
 
 	stream = 0;
 	uvc_start();
@@ -632,101 +737,11 @@ static int uvc_thread(SceSize args, void *argp)
 	ksceDisplayRegisterVblankStartCallback(display_vblank_cb_uid);
 
 	while (uvc_thread_run) {
-		if (stream) {
-			unsigned int fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
-			SceUID userblock;
-			SceUID kernelblock;
+		unsigned int out_bits;
 
-			SceDisplayFrameBufInfo fb;
-			fb.size = sizeof(fb);
-			ret = ksceDisplayGetFrameBufInfoForPid(-1, 0, fb_index, &fb);
-
-			if (fb.pid != cur_pid) {
-				// LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
-
-				userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
-				if (userblock < 0)
-					continue;
-
-				SceKernelAllocMemBlockKernelOpt opt;
-				opt.size = sizeof(opt);
-				opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_MIRROR_BLOCKID | 0x1000000;
-				opt.mirror_blockid = userblock;
-
-				/*
-				 * It looks like when creating a memory block mirror,
-				 * extra memory will be allocated if size != 0.
-				 */
-				kernelblock = ksceKernelAllocMemBlock("mirror_block",
-					SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, 0, &opt);
-				if (kernelblock < 0) {
-					LOG("Error mirroring block: 0x%08X\n", kernelblock);
-					continue;
-				}
-
-				LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
-
-				void *base = NULL;
-				ret = ksceKernelGetMemBlockBase(kernelblock, &base);
-				if (ret < 0) {
-					ksceKernelFreeMemBlock(kernelblock);
-					continue;
-				}
-
-				rgba_buff_addr = base;
-			} else {
-				rgba_buff_addr = fb.framebuf.base;
-			}
-
-			unsigned int pitch = fb.framebuf.pitch;
-
-			if (rgba_buff_addr) {
-				uint64_t time1 = ksceKernelGetSystemTimeWide();
-
-				ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
-							 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
-				if (ret < 0)
-					LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
-
-				uint64_t time2 = ksceKernelGetSystemTimeWide();
-
-				ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
-				if (ret < 0)
-					LOG("Error ksceJpegEncoderEncode: 0x%08X\n", ret);
-
-				uint64_t time3 = ksceKernelGetSystemTimeWide();
-
-				ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2, ret);
-				if (ret < 0) {
-					LOG("Error sending frame: 0x%08X\n", ret);
-					stream = 0;
-				}
-
-				uint64_t time4 = ksceKernelGetSystemTimeWide();
-
-				uint64_t delta_csc = time2 - time1;
-				uint64_t delta_enc = time3 - time2;
-				uint64_t delta_xfer = time4 - time3;
-
-				LOG("CSC: %lldms, JPEG enc: %lldms, transfer: %lldms\n",
-				    delta_csc / 1000, delta_enc / 1000,
-				    delta_xfer / 1000);
-			}
-
-			fid ^= 1;
-
-			if (fb.pid != cur_pid) {
-				ret = ksceKernelFreeMemBlock(kernelblock);
-				if (ret < 0)
-					LOG("Error free kernelblock: 0x%08X\n", ret);
-			}
-		} else {
-			unsigned int out_bits;
-
-			ksceKernelWaitEventFlagCB(uvc_event_flag_id, 1,
-				      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
-				      &out_bits, NULL);
-		}
+		ksceKernelWaitEventFlagCB(uvc_event_flag_id, 1,
+			      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
+			      &out_bits, NULL);
 	}
 
 	ksceDisplayUnregisterVblankStartCallback(display_vblank_cb_uid);
@@ -1050,8 +1065,6 @@ int module_start(SceSize argc, const void *args)
 		LOG("Error starting the UVC thread (0x%08X)\n", ret);
 		goto err_unregister;
 	}
-
-	LOG("module_start done successfully!\n");
 
 	return SCE_KERNEL_START_SUCCESS;
 
