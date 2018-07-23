@@ -20,14 +20,19 @@
  * UVC Configurable options
  */
 
-#define CONTROL_INTERFACE 	0
-#define STREAM_INTERFACE	1
+#define CONTROL_INTERFACE 		0
+#define STREAM_INTERFACE		1
 
-#define INTERFACE_CTRL_ID	0
-#define CAMERA_TERMINAL_ID	1
-#define PROCESSING_UNIT_ID	2
-#define EXTENSION_UNIT_ID	3
-#define OUTPUT_TERMINAL_ID	4
+#define INTERFACE_CTRL_ID		0
+#define CAMERA_TERMINAL_ID		1
+#define PROCESSING_UNIT_ID		2
+#define EXTENSION_UNIT_ID		3
+#define OUTPUT_TERMINAL_ID		4
+
+#define FORMAT_INDEX_MPEG		1
+#define FORMAT_INDEX_UNCOMPRESSED	2
+
+#define ENABLE_UNCOMPRESSED		0
 
 static
 unsigned char interface_association_descriptor[] = {
@@ -134,12 +139,20 @@ static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_mjpeg format_mjpeg;
 	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
+#if ENABLE_UNCOMPRESSED == 1
+	struct uvc_format_uncompressed format_uncompressed;
+	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed;
+#endif
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_INPUT_HEADER,
+#if ENABLE_UNCOMPRESSED == 1
+		.bNumFormats			= 2,
+#else
 		.bNumFormats			= 1,
+#endif
 		.wTotalLength			= sizeof(video_streaming_descriptors),
 		.bEndpointAddress		= 0x83,
 		.bmInfo				= 0,
@@ -154,7 +167,7 @@ static struct __attribute__((packed)) {
 		.bLength			= sizeof(video_streaming_descriptors.format_mjpeg),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FORMAT_MJPEG,
-		.bFormatIndex			= 1,
+		.bFormatIndex			= FORMAT_INDEX_MPEG,
 		.bNumFrameDescriptors		= 1,
 		.bmFlags			= 0,
 		.bDefaultFrameIndex		= 1,
@@ -178,6 +191,37 @@ static struct __attribute__((packed)) {
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {666666},
 	},
+#if ENABLE_UNCOMPRESSED == 1
+	.format_uncompressed = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
+		.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED,
+		.bNumFrameDescriptors		= 1,
+		.guidFormat			= UVC_GUID_FORMAT_YUY2,
+		.bBitsPerPixel			= 16,
+		.bDefaultFrameIndex		= 1,
+		.bAspectRatioX			= 8,
+		.bAspectRatioY			= 6,
+		.bmInterfaceFlags		= 0,
+		.bCopyProtect			= 0,
+	},
+	.frame_uncompressed = {
+		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
+		.bFrameIndex			= 1,
+		.bmCapabilities			= 1,
+		.wWidth				= 960,
+		.wHeight			= 544,
+		.dwMinBitRate			= 832000000,
+		.dwMaxBitRate			= 832000000,
+		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
+		.dwDefaultFrameInterval		= 666666,
+		.bFrameIntervalType		= 1,
+		.dwFrameInterval		= {666666},
+	},
+#endif
 };
 
 /* Endpoint blocks */

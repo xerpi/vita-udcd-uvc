@@ -608,6 +608,84 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 int uvc_start(void);
 int uvc_stop(void);
 
+static int send_frame_mpeg(int fid, void *rgba_buff_addr, unsigned int pitch)
+{
+	int ret;
+	uint64_t time1, time2, time3, time4;
+	uint64_t delta_csc, delta_enc, delta_xfer;
+
+	time1 = ksceKernelGetSystemTimeWide();
+
+	ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
+				 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
+	if (ret < 0) {
+		LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
+		return ret;
+	}
+
+	time2 = ksceKernelGetSystemTimeWide();
+
+	ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
+	if (ret < 0) {
+		LOG("Error ksceJpegEncoderEncode: 0x%08X\n", ret);
+		return ret;
+	}
+
+	time3 = ksceKernelGetSystemTimeWide();
+
+	ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2, ret);
+	if (ret < 0) {
+		LOG("Error sending frame: 0x%08X\n", ret);
+		stream = 0;
+		return ret;
+	}
+
+	time4 = ksceKernelGetSystemTimeWide();
+
+	delta_csc = time2 - time1;
+	delta_enc = time3 - time2;
+	delta_xfer = time4 - time3;
+
+	LOG("CSC: %lldms, JPEG enc: %lldms, transfer: %lldms\n",
+	    delta_csc / 1000, delta_enc / 1000,
+	    delta_xfer / 1000);
+
+	return 0;
+}
+
+static int send_frame_uncompressed(int fid, void *rgba_buff_addr, unsigned int pitch)
+{
+	#define VIDEO_FRAME_WIDTH	960
+	#define VIDEO_FRAME_HEIGHT	544
+	#define YUY2_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 2)
+	static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
+
+	int ret;
+	uint64_t time1, time2, time3;
+
+	time1 = ksceKernelGetSystemTimeWide();
+
+	rgba8888_to_yuy2(rgba_buff_addr, pitch, yuy2_frame, VIDEO_FRAME_WIDTH,
+			 VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
+	ksceKernelCpuDcacheAndL2WritebackRange(yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
+
+	time2 = ksceKernelGetSystemTimeWide();
+
+	ret = uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
+	if (ret < 0) {
+		LOG("Error sending frame: 0x%08X\n", ret);
+		stream = 0;
+		return ret;
+	}
+
+	time3 = ksceKernelGetSystemTimeWide();
+
+	LOG("CSC: %lldms, Transfer: %lldms\n", (time2 - time1) / 1000,
+		(time3 - time2) / 1000);
+
+	return 0;
+}
+
 static int send_frame(void)
 {
 	static int fid = 0;
@@ -668,39 +746,13 @@ static int send_frame(void)
 		rgba_buff_addr = fb.framebuf.base;
 	}
 
-	unsigned int pitch = fb.framebuf.pitch;
-
-	if (rgba_buff_addr) {
-		uint64_t time1 = ksceKernelGetSystemTimeWide();
-
-		ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
-					 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
-		if (ret < 0)
-			LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
-
-		uint64_t time2 = ksceKernelGetSystemTimeWide();
-
-		ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
-		if (ret < 0)
-			LOG("Error ksceJpegEncoderEncode: 0x%08X\n", ret);
-
-		uint64_t time3 = ksceKernelGetSystemTimeWide();
-
-		ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2, ret);
-		if (ret < 0) {
-			LOG("Error sending frame: 0x%08X\n", ret);
-			stream = 0;
-		}
-
-		uint64_t time4 = ksceKernelGetSystemTimeWide();
-
-		uint64_t delta_csc = time2 - time1;
-		uint64_t delta_enc = time3 - time2;
-		uint64_t delta_xfer = time4 - time3;
-
-		LOG("CSC: %lldms, JPEG enc: %lldms, transfer: %lldms\n",
-		    delta_csc / 1000, delta_enc / 1000,
-		    delta_xfer / 1000);
+	switch (uvc_probe_control_setting.bFormatIndex) {
+	case FORMAT_INDEX_MPEG:
+		ret = send_frame_mpeg(fid, rgba_buff_addr, fb.framebuf.pitch);
+		break;
+	case FORMAT_INDEX_UNCOMPRESSED:
+		ret = send_frame_uncompressed(fid, rgba_buff_addr, fb.framebuf.pitch);;
+		break;
 	}
 
 	fid ^= 1;
