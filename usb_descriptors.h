@@ -139,7 +139,7 @@ static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_mjpeg format_mjpeg;
 	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
-#if ENABLE_UNCOMPRESSED == 1
+#if ENABLE_UNCOMPRESSED
 	struct uvc_format_uncompressed format_uncompressed;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed;
 #endif
@@ -148,7 +148,7 @@ static struct __attribute__((packed)) {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_INPUT_HEADER,
-#if ENABLE_UNCOMPRESSED == 1
+#if ENABLE_UNCOMPRESSED
 		.bNumFormats			= 2,
 #else
 		.bNumFormats			= 1,
@@ -191,7 +191,7 @@ static struct __attribute__((packed)) {
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {666666},
 	},
-#if ENABLE_UNCOMPRESSED == 1
+#if ENABLE_UNCOMPRESSED
 	.format_uncompressed = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
