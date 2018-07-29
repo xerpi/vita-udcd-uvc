@@ -39,13 +39,17 @@ extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
 
 #define VIDEO_FRAME_WIDTH		960
 #define VIDEO_FRAME_HEIGHT		544
-#define VIDEO_FRAME_SIZE		(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT)
+#define VIDEO_FRAME_SIZE_NV12		((VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3) / 2)
 
 #define PAYLOAD_HEADER_SIZE		12
 
-static struct uvc_streaming_control uvc_probe_control_setting = {
+static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.bmHint				= 0,
-	.bFormatIndex			= 1,
+#if ENABLE_UNCOMPRESSED_FORMATS
+	.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED_NV12,
+#else
+	.bFormatIndex			= FORMAT_INDEX_MJPEG,
+#endif
 	.bFrameIndex			= 1,
 	.dwFrameInterval		= FPS_TO_INTERVAL(60),
 	.wKeyFrameRate			= 0,
@@ -53,17 +57,23 @@ static struct uvc_streaming_control uvc_probe_control_setting = {
 	.wCompQuality			= 0,
 	.wCompWindowSize		= 0,
 	.wDelay				= 0,
-	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE,
+#if ENABLE_UNCOMPRESSED_FORMATS
+	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE_NV12,
+#else
+	.dwMaxVideoFrameSize		= VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT,
+#endif
 	.dwMaxPayloadTransferSize	= MAX_PAYLOAD_TRANSFER_SIZE,
 	.dwClockFrequency		= 0,
 	.bmFramingInfo			= 0,
-	.bPreferedVersion		= 0,
+	.bPreferedVersion		= 1,
 	.bMinVersion			= 0,
 	.bMaxVersion			= 0,
 };
 
+static struct uvc_streaming_control uvc_probe_control_setting;
+
 static struct {
-	unsigned char buffer[512];
+	unsigned char buffer[64];
 	SceUdcdEP0DeviceRequest ep0_req;
 } pending_recv;
 
@@ -256,7 +266,7 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
 			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
 
-			LOG("Probe, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
+			LOG("Probe SET_CUR, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
 
 			break;
 		}
@@ -268,7 +278,7 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
 			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
 
-			LOG("Commit, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
+			LOG("Commit SET_CUR, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
 
 			stream = 1;
 			ksceKernelSetEventFlag(uvc_event_flag_id, 1);
@@ -323,10 +333,13 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 			break;
 		case UVC_GET_LEN:
 			break;
-		case UVC_GET_CUR:
 		case UVC_GET_MIN:
 		case UVC_GET_MAX:
 		case UVC_GET_DEF:
+			usb_ep0_req_send(&uvc_probe_control_setting_default,
+					 sizeof(uvc_probe_control_setting_default));
+			break;
+		case UVC_GET_CUR:
 			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
@@ -818,7 +831,7 @@ static int send_frame(void)
 			return kernelblock;
 		}
 
-		LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
+		/* LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock); */
 
 		ret = ksceKernelGetMemBlockBase(kernelblock, &fb_addr);
 		if (ret < 0) {
@@ -1198,6 +1211,12 @@ int module_start(SceSize argc, const void *args)
 		LOG("Error registering the UDCD driver (0x%08X)\n", ret);
 		goto err_delete_event_flag;
 	}
+
+	/*
+	 * Set the current streaming settings to the default ones.
+	 */
+	memcpy(&uvc_probe_control_setting, &uvc_probe_control_setting_default,
+	       sizeof(uvc_probe_control_setting));
 
 	uvc_thread_run = 1;
 
