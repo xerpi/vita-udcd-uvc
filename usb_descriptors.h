@@ -4,17 +4,11 @@
  * USB definitions
  */
 
-#define USB_TYPE_MASK			(0x03 << 5)
-#define USB_TYPE_STANDARD		(0x00 << 5)
-#define USB_TYPE_CLASS			(0x01 << 5)
-#define USB_TYPE_VENDOR			(0x02 << 5)
-#define USB_TYPE_RESERVED		(0x03 << 5)
-
-#define USB_DT_CS_DEVICE		(USB_TYPE_CLASS | USB_DT_DEVICE)
-#define USB_DT_CS_CONFIG		(USB_TYPE_CLASS | USB_DT_CONFIG)
-#define USB_DT_CS_STRING		(USB_TYPE_CLASS | USB_DT_STRING)
-#define USB_DT_CS_INTERFACE		(USB_TYPE_CLASS | USB_DT_INTERFACE)
-#define USB_DT_CS_ENDPOINT		(USB_TYPE_CLASS | USB_DT_ENDPOINT)
+#define USB_DT_CS_DEVICE		(USB_CTRLTYPE_TYPE_CLASS | USB_DT_DEVICE)
+#define USB_DT_CS_CONFIG		(USB_CTRLTYPE_TYPE_CLASS | USB_DT_CONFIG)
+#define USB_DT_CS_STRING		(USB_CTRLTYPE_TYPE_CLASS | USB_DT_STRING)
+#define USB_DT_CS_INTERFACE		(USB_CTRLTYPE_TYPE_CLASS | USB_DT_INTERFACE)
+#define USB_DT_CS_ENDPOINT		(USB_CTRLTYPE_TYPE_CLASS | USB_DT_ENDPOINT)
 
 /*
  * UVC Configurable options
@@ -29,22 +23,30 @@
 #define EXTENSION_UNIT_ID		3
 #define OUTPUT_TERMINAL_ID		4
 
-#define FORMAT_INDEX_MPEG		1
-#define FORMAT_INDEX_UNCOMPRESSED	2
+#define FORMAT_INDEX_MJPEG		1
+#define FORMAT_INDEX_UNCOMPRESSED_NV12	2
+#define FORMAT_INDEX_UNCOMPRESSED_YUY2	3
 
-#define ENABLE_UNCOMPRESSED		0
+#define ENABLE_UNCOMPRESSED_FORMATS	1
+
+/*
+ * Helper macros
+ */
+
+#define FRAME_BITRATE(w, h, bpp, interval)	((w * h * bpp) / (interval * 100 * 1E-9))
+#define FPS_TO_INTERVAL(fps)			((1E9 / 100) / fps)
 
 static
 unsigned char interface_association_descriptor[] = {
 	/* Interface Association Descriptor */
-	0x08,			/* Descriptor Size */
-	0x0B,			/* Interface Association Descr Type: 11 */
-	0x00,			/* I/f number of first VideoControl i/f */
-	0x02,			/* Number of Video i/f */
-	0x0E,			/* CC_VIDEO : Video i/f class code */
-	0x03,			/* SC_VIDEO_INTERFACE_COLLECTION : Subclass code */
-	0x00,			/* Protocol : Not used */
-	0x00,			/* String desc index for interface */
+	0x08,					/* Descriptor Size */
+	0x0B,					/* Interface Association Descr Type: 11 */
+	0x00,					/* I/f number of first VideoControl i/f */
+	0x02,					/* Number of Video i/f */
+	USB_CLASS_VIDEO,			/* CC_VIDEO : Video i/f class code */
+	UVC_SC_VIDEO_INTERFACE_COLLECTION,	/* SC_VIDEO_INTERFACE_COLLECTION : Subclass code */
+	UVC_PC_PROTOCOL_UNDEFINED,		/* Protocol : Not used */
+	0x00,					/* String desc index for interface */
 };
 
 DECLARE_UVC_HEADER_DESCRIPTOR(1);
@@ -65,7 +67,7 @@ static struct __attribute__((packed)) {
 		.wTotalLength			= sizeof(video_control_descriptors),
 		.dwClockFrequency		= 48000000,
 		.bInCollection			= 1,
-		.baInterfaceNr			= {1},
+		.baInterfaceNr			= {STREAM_INTERFACE},
 	},
 	.input_camera_terminal_descriptor = {
 		.bLength			= sizeof(video_control_descriptors.input_camera_terminal_descriptor),
@@ -139,17 +141,19 @@ static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_mjpeg format_mjpeg;
 	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
-#if ENABLE_UNCOMPRESSED
-	struct uvc_format_uncompressed format_uncompressed;
-	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed;
+#if ENABLE_UNCOMPRESSED_FORMATS
+	struct uvc_format_uncompressed format_uncompressed_nv12;
+	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_nv12;
+	struct uvc_format_uncompressed format_uncompressed_yuy2;
+	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_yuy2;
 #endif
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_INPUT_HEADER,
-#if ENABLE_UNCOMPRESSED
-		.bNumFormats			= 2,
+#if ENABLE_UNCOMPRESSED_FORMATS
+		.bNumFormats			= 3,
 #else
 		.bNumFormats			= 1,
 #endif
@@ -167,7 +171,7 @@ static struct __attribute__((packed)) {
 		.bLength			= sizeof(video_streaming_descriptors.format_mjpeg),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FORMAT_MJPEG,
-		.bFormatIndex			= FORMAT_INDEX_MPEG,
+		.bFormatIndex			= FORMAT_INDEX_MJPEG,
 		.bNumFrameDescriptors		= 1,
 		.bmFlags			= 0,
 		.bDefaultFrameIndex		= 1,
@@ -184,42 +188,71 @@ static struct __attribute__((packed)) {
 		.bmCapabilities			= 1,
 		.wWidth				= 960,
 		.wHeight			= 544,
-		.dwMinBitRate			= 832000000,
-		.dwMaxBitRate			= 832000000,
+		.dwMinBitRate			= FRAME_BITRATE(960, 544, 16, FPS_TO_INTERVAL(60)),
+		.dwMaxBitRate			= FRAME_BITRATE(960, 544, 16, FPS_TO_INTERVAL(60)),
 		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
-		.dwDefaultFrameInterval		= 666666,
+		.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 		.bFrameIntervalType		= 1,
-		.dwFrameInterval		= {666666},
+		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
 	},
-#if ENABLE_UNCOMPRESSED
-	.format_uncompressed = {
-		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed),
+#if ENABLE_UNCOMPRESSED_FORMATS
+	.format_uncompressed_nv12 = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
-		.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED,
+		.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED_NV12,
+		.bNumFrameDescriptors		= 1,
+		.guidFormat			= UVC_GUID_FORMAT_NV12,
+		.bBitsPerPixel			= 12,
+		.bDefaultFrameIndex		= 1,
+		.bAspectRatioX			= 0,
+		.bAspectRatioY			= 0,
+		.bmInterfaceFlags		= 0,
+		.bCopyProtect			= 0,
+	},
+	.frame_uncompressed_nv12 = {
+		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed_nv12),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
+		.bFrameIndex			= 1,
+		.bmCapabilities			= 0,
+		.wWidth				= 960,
+		.wHeight			= 544,
+		.dwMinBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
+		.dwMaxBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
+		.dwMaxVideoFrameBufferSize	= (960 * 544 * 3) / 2,
+		.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
+		.bFrameIntervalType		= 1,
+		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
+	},
+	.format_uncompressed_yuy2 = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_yuy2),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
+		.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED_YUY2,
 		.bNumFrameDescriptors		= 1,
 		.guidFormat			= UVC_GUID_FORMAT_YUY2,
 		.bBitsPerPixel			= 16,
 		.bDefaultFrameIndex		= 1,
-		.bAspectRatioX			= 8,
-		.bAspectRatioY			= 6,
+		.bAspectRatioX			= 0,
+		.bAspectRatioY			= 0,
 		.bmInterfaceFlags		= 0,
 		.bCopyProtect			= 0,
 	},
-	.frame_uncompressed = {
-		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed),
+	.frame_uncompressed_yuy2 = {
+		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed_yuy2),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
 		.bFrameIndex			= 1,
-		.bmCapabilities			= 1,
+		.bmCapabilities			= 0,
 		.wWidth				= 960,
 		.wHeight			= 544,
-		.dwMinBitRate			= 832000000,
-		.dwMaxBitRate			= 832000000,
+		.dwMinBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
+		.dwMaxBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
 		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
-		.dwDefaultFrameInterval		= 666666,
+		.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 		.bFrameIntervalType		= 1,
-		.dwFrameInterval		= {666666},
+		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
 	},
 #endif
 };
@@ -227,10 +260,10 @@ static struct __attribute__((packed)) {
 /* Endpoint blocks */
 static
 struct SceUdcdEndpoint endpoints[4] = {
-	{0x00, 0, 0, 0},
-	{0x00, 1, 0, 0},
-	{0x80, 2, 0, 0},
-	{0x80, 3, 0, 0}
+	{USB_ENDPOINT_OUT, 0, 0, 0},
+	{USB_ENDPOINT_OUT, 1, 0, 0},
+	{USB_ENDPOINT_IN, 2, 0, 0},
+	{USB_ENDPOINT_IN, 3, 0, 0}
 };
 
 /* Interfaces */
@@ -260,9 +293,9 @@ struct SceUdcdDeviceDescriptor devdesc_hi = {
 	USB_DT_DEVICE_SIZE,
 	USB_DT_DEVICE,
 	0x200,			/* bcdUSB */
-	0xEF,			/* bDeviceClass */
-	0x02,			/* bDeviceSubClass */
-	0x01,			/* bDeviceProtocol */
+	0xEF,			/* bDeviceClass (Miscellaneous Device Class)*/
+	0x02,			/* bDeviceSubClass (Common Class) */
+	0x01,			/* bDeviceProtocol (Interface Association Descriptor) */
 	64,			/* bMaxPacketSize0 */
 	0,			/* idProduct */
 	0,			/* idVendor */
@@ -280,27 +313,27 @@ struct SceUdcdEndpointDescriptor endpdesc_hi[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		0x01,			/* bEndpointAddress */
-		0x02,			/* bmAttributes */
-		0x200,			/* wMaxPacketSize */
-		0x00			/* bInterval */
+		USB_ENDPOINT_OUT | 0x01,	/* bEndpointAddress */
+		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
+		0x200,				/* wMaxPacketSize */
+		0x00				/* bInterval */
 	},
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		0x82,			/* bEndpointAddress */
-		0x03,			/* bmAttributes */
-		0x40,			/* wMaxPacketSize */
-		0x01			/* bInterval */
+		USB_ENDPOINT_IN | 0x02,		/* bEndpointAddress */
+		USB_ENDPOINT_TYPE_INTERRUPT,	/* bmAttributes */
+		0x40,				/* wMaxPacketSize */
+		0x01				/* bInterval */
 	},
 	/* Video Streaming endpoints */
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		0x83,			/* bEndpointAddress */
-		0x02,			/* bmAttributes */
-		0x200,			/* wMaxPacketSize */
-		0x00			/* bInterval */
+		USB_ENDPOINT_IN | 0x03,		/* bEndpointAddress */
+		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
+		0x200,				/* wMaxPacketSize */
+		0x00				/* bInterval */
 	},
 	{
 		0,
@@ -316,9 +349,9 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 		CONTROL_INTERFACE,		/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
 		2,				/* bNumEndpoints */
-		0x0E,				/* bInterfaceClass */
-		0x01,				/* bInterfaceSubClass */
-		0x00,				/* bInterfaceProtocol */
+		USB_CLASS_VIDEO,		/* bInterfaceClass */
+		UVC_SC_VIDEOCONTROL,		/* bInterfaceSubClass */
+		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
 		0,				/* iInterface */
 		&endpdesc_hi[0],		/* endpoints */
 		(void *)&video_control_descriptors,
@@ -330,9 +363,9 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 		STREAM_INTERFACE,		/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
 		1,				/* bNumEndpoints */
-		0x0E,				/* bInterfaceClass */
-		0x02,				/* bInterfaceSubClass */
-		0x00,				/* bInterfaceProtocol */
+		USB_CLASS_VIDEO,		/* bInterfaceClass */
+		UVC_SC_VIDEOSTREAMING,		/* bInterfaceSubClass */
+		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
 		0,				/* iInterface */
 		&endpdesc_hi[2],		/* endpoints */
 		(void *)&video_streaming_descriptors,
@@ -346,16 +379,8 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 /* Hi-Speed settings */
 static
 struct SceUdcdInterfaceSettings settings_hi[2] = {
-	{
-		&interdesc_hi[0],
-		0,
-		1
-	},
-	{
-		&interdesc_hi[1],
-		0,
-		1
-	}
+	{&interdesc_hi[0], 0, 1},
+	{&interdesc_hi[1], 0, 1}
 };
 
 /* Hi-Speed configuration descriptor */
@@ -370,8 +395,8 @@ struct SceUdcdConfigDescriptor confdesc_hi = {
 	2,			/* bNumInterfaces */
 	1,			/* bConfigurationValue */
 	0,			/* iConfiguration */
-	0xC0,			/* bmAttributes */
-	0,			/* bMaxPower */
+	0x80,			/* bmAttributes */
+	250,			/* bMaxPower */
 	&settings_hi[0],
 	interface_association_descriptor,
 	sizeof(interface_association_descriptor)
@@ -392,9 +417,9 @@ struct SceUdcdDeviceDescriptor devdesc_full = {
 	USB_DT_DEVICE_SIZE,
 	USB_DT_DEVICE,
 	0x200,			/* bcdUSB (should be 0x110 but the PSVita freezes otherwise) */
-	0xEF,			/* bDeviceClass */
-	0x02,			/* bDeviceSubClass */
-	0x01,			/* bDeviceProtocol */
+	0xEF,			/* bDeviceClass (Miscellaneous Device Class)*/
+	0x02,			/* bDeviceSubClass (Common Class) */
+	0x01,			/* bDeviceProtocol (Interface Association Descriptor) */
 	0x40,			/* bMaxPacketSize0 */
 	0,			/* idProduct */
 	0,			/* idVendor */
@@ -412,27 +437,27 @@ struct SceUdcdEndpointDescriptor endpdesc_full[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		0x01,			/* bEndpointAddress */
-		0x02,			/* bmAttributes */
-		0x40,			/* wMaxPacketSize */
-		0x00			/* bInterval */
+		USB_ENDPOINT_OUT | 0x01,	/* bEndpointAddress */
+		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
+		0x40,				/* wMaxPacketSize */
+		0x00				/* bInterval */
 	},
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		0x82,			/* bEndpointAddress */
-		0x03,			/* bmAttributes */
-		0x40,			/* wMaxPacketSize */
-		0x01			/* bInterval */
+		USB_ENDPOINT_IN | 0x01,		/* bEndpointAddress */
+		USB_ENDPOINT_TYPE_INTERRUPT,	/* bmAttributes */
+		0x40,				/* wMaxPacketSize */
+		0x01				/* bInterval */
 	},
 	/* Video Streaming endpoints */
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		0x83,			/* bEndpointAddress */
-		0x02,			/* bmAttributes */
-		0x40,			/* wMaxPacketSize */
-		0x00			/* bInterval */
+		USB_ENDPOINT_IN | 0x01,		/* bEndpointAddress */
+		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
+		0x40,				/* wMaxPacketSize */
+		0x00				/* bInterval */
 	},
 	{
 		0,
@@ -448,9 +473,9 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 		0,				/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
 		2,				/* bNumEndpoints */
-		14,				/* bInterfaceClass */
-		0x01,				/* bInterfaceSubClass */
-		0x00,				/* bInterfaceProtocol */
+		USB_CLASS_VIDEO,		/* bInterfaceClass */
+		UVC_SC_VIDEOCONTROL,		/* bInterfaceSubClass */
+		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
 		1,				/* iInterface */
 		&endpdesc_full[0],		/* endpoints */
 		(void *)&video_control_descriptors,
@@ -462,9 +487,9 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 		1,				/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
 		1,				/* bNumEndpoints */
-		14,				/* bInterfaceClass */
-		0x02,				/* bInterfaceSubClass */
-		0x00,				/* bInterfaceProtocol */
+		USB_CLASS_VIDEO,		/* bInterfaceClass */
+		UVC_SC_VIDEOSTREAMING,		/* bInterfaceSubClass */
+		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
 		1,				/* iInterface */
 		&endpdesc_full[2],		/* endpoints */
 		(void *)&video_streaming_descriptors,
@@ -478,16 +503,8 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 /* Full-Speed settings */
 static
 struct SceUdcdInterfaceSettings settings_full[2] = {
-	{
-		&interdesc_full[0],
-		0,
-		1
-	},
-	{
-		&interdesc_full[1],
-		0,
-		1
-	}
+	{&interdesc_full[0], 0, 1},
+	{&interdesc_full[1], 0, 1}
 };
 
 /* Full-Speed configuration descriptor */
@@ -502,8 +519,8 @@ struct SceUdcdConfigDescriptor confdesc_full = {
 	2,			/* bNumInterfaces */
 	1,			/* bConfigurationValue */
 	0,			/* iConfiguration */
-	0xC0,			/* bmAttributes */
-	0,			/* bMaxPower */
+	0x80,			/* bmAttributes */
+	250,			/* bMaxPower */
 	&settings_full[0],
 	interface_association_descriptor,
 	sizeof(interface_association_descriptor)

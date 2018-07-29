@@ -5,7 +5,7 @@ LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
 	-lSceSysmemForKernel_stub -lSceThreadmgrForDriver_stub -lSceCpuForKernel_stub \
 	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub -lSceDisplayForDriver_stub \
 	-lSceIofilemgrForDriver_stub -lSceAvcodecForDriver_stub -ltaihenForKernel_stub \
-	-lSceAppMgrForDriver_stub
+	-lSceAppMgrForDriver_stub -lSceIftuForDriver_stub
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc

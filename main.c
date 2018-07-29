@@ -5,6 +5,7 @@
 #include <psp2kern/udcd.h>
 #include <psp2kern/display.h>
 #include <psp2kern/avcodec/jpegenc.h>
+#include <psp2kern/lowio/iftu.h>
 #include "usb_descriptors.h"
 #include "conversion.h"
 #include "uvc.h"
@@ -46,7 +47,7 @@ static struct uvc_streaming_control uvc_probe_control_setting = {
 	.bmHint				= 0,
 	.bFormatIndex			= 1,
 	.bFrameIndex			= 1,
-	.dwFrameInterval		= 666666,
+	.dwFrameInterval		= FPS_TO_INTERVAL(60),
 	.wKeyFrameRate			= 0,
 	.wPFrameRate			= 0,
 	.wCompQuality			= 0,
@@ -54,7 +55,7 @@ static struct uvc_streaming_control uvc_probe_control_setting = {
 	.wDelay				= 0,
 	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE,
 	.dwMaxPayloadTransferSize	= MAX_PAYLOAD_TRANSFER_SIZE,
-	.dwClockFrequency		= 384000000,
+	.dwClockFrequency		= 0,
 	.bmFramingInfo			= 0,
 	.bPreferedVersion		= 0,
 	.bMinVersion			= 0,
@@ -254,6 +255,9 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 			uvc_probe_control_setting.bFormatIndex = streaming_control->bFormatIndex;
 			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
 			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
+
+			LOG("Probe, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
+
 			break;
 		}
 		break;
@@ -608,7 +612,7 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 int uvc_start(void);
 int uvc_stop(void);
 
-static int send_frame_mpeg(int fid, void *rgba_buff_addr, unsigned int pitch)
+static int send_frame_mjpeg(int fid, const void *addr, int width, int height, int pitch)
 {
 	int ret;
 	uint64_t time1, time2, time3, time4;
@@ -616,7 +620,7 @@ static int send_frame_mpeg(int fid, void *rgba_buff_addr, unsigned int pitch)
 
 	time1 = ksceKernelGetSystemTimeWide();
 
-	ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, rgba_buff_addr,
+	ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, addr,
 				 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
 	if (ret < 0) {
 		LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
@@ -633,7 +637,7 @@ static int send_frame_mpeg(int fid, void *rgba_buff_addr, unsigned int pitch)
 
 	time3 = ksceKernelGetSystemTimeWide();
 
-	ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + 960 * 544 * 2, ret);
+	ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + width * height * 2, ret);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		stream = 0;
@@ -646,32 +650,86 @@ static int send_frame_mpeg(int fid, void *rgba_buff_addr, unsigned int pitch)
 	delta_enc = time3 - time2;
 	delta_xfer = time4 - time3;
 
-	LOG("CSC: %lldms, JPEG enc: %lldms, transfer: %lldms\n",
+	LOG("MJPEG: CSC: %lldms, JPEG enc: %lldms, Transfer: %lldms\n",
 	    delta_csc / 1000, delta_enc / 1000,
 	    delta_xfer / 1000);
 
 	return 0;
 }
 
-static int send_frame_uncompressed(int fid, void *rgba_buff_addr, unsigned int pitch)
+static int send_frame_uncompressed_nv12(int fid, const void *addr, int width, int height, int pitch)
 {
-	#define VIDEO_FRAME_WIDTH	960
-	#define VIDEO_FRAME_HEIGHT	544
-	#define YUY2_VIDEO_FRAME_SIZE	(VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 2)
-	static unsigned char yuy2_frame[YUY2_VIDEO_FRAME_SIZE];
+	unsigned char *nv12_frame = jpegenc_buffer_addr;
 
 	int ret;
 	uint64_t time1, time2, time3;
 
 	time1 = ksceKernelGetSystemTimeWide();
 
-	rgba8888_to_yuy2(rgba_buff_addr, pitch, yuy2_frame, VIDEO_FRAME_WIDTH,
-			 VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT);
-	ksceKernelCpuDcacheAndL2WritebackRange(yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
+	SceIftuCscParams RGB_to_YCbCr_JPEG_csc_params = {
+		0, 0x202, 0x3FF,
+		0, 0x3FF,     0,
+		{
+			{ 0x99, 0x12C,  0x3A},
+			{0xFAA, 0xF57, 0x100},
+			{0x100, 0xF2A, 0xFD7}
+		}
+	};
+
+	uintptr_t in_paddr, out_paddr;
+	ksceKernelGetPaddr(addr, &in_paddr);
+	ksceKernelGetPaddr(nv12_frame, &out_paddr);
+
+	SceIftuConvParams params;
+	memset(&params, 0, sizeof(params));
+	params.size = sizeof(params);
+	params.unk04 = 1;
+	params.csc_params1 = &RGB_to_YCbCr_JPEG_csc_params;
+	params.csc_params2 = NULL;
+	params.csc_control = 1;
+	params.unk14 = 0;
+	params.unk18 = 0;
+	params.unk1C = 0;
+	params.alpha = 0xFF;
+	params.unk24 = 0;
+
+	SceIftuPlaneState src;
+	memset(&src, 0, sizeof(src));
+	src.fb.pixelformat = SCE_IFTU_PIXELFORMAT_BGRX8888;
+	src.fb.width = pitch;
+	src.fb.height = height;
+	src.fb.leftover_stride = 0;
+	src.fb.leftover_align = 0;
+	src.fb.paddr0 = in_paddr;
+	src.unk20 = 0;
+	src.src_x = 0;
+	src.src_y = 0;
+	src.src_w = 0x10000;
+	src.src_h = 0x10000;
+	src.dst_x = 0;
+	src.dst_y = 0;
+	src.dst_w = 0;
+	src.dst_h = 0;
+	src.vtop_padding = 0;
+	src.vbot_padding = 0;
+	src.hleft_padding = 0;
+	src.hright_padding = 0;
+
+	SceIftuFrameBuf dst;
+	memset(&dst, 0, sizeof(dst));
+	dst.pixelformat = SCE_IFTU_PIXELFORMAT_NV12;
+	dst.width = width;
+	dst.height = height;
+	dst.leftover_stride = 0;
+	dst.leftover_align = 0;
+	dst.paddr0 = out_paddr;
+	dst.paddr1 = out_paddr + width * height;
+
+	ksceIftuCsc(&dst, &src, &params);
 
 	time2 = ksceKernelGetSystemTimeWide();
 
-	ret = uvc_video_frame_transfer(fid, yuy2_frame, YUY2_VIDEO_FRAME_SIZE);
+	ret = uvc_video_frame_transfer(fid, nv12_frame, (width * height * 3) / 2);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		stream = 0;
@@ -680,7 +738,37 @@ static int send_frame_uncompressed(int fid, void *rgba_buff_addr, unsigned int p
 
 	time3 = ksceKernelGetSystemTimeWide();
 
-	LOG("CSC: %lldms, Transfer: %lldms\n", (time2 - time1) / 1000,
+	LOG("NV12: CSC: %lldms, Transfer: %lldms\n", (time2 - time1) / 1000,
+		(time3 - time2) / 1000);
+
+	return 0;
+}
+
+static int send_frame_uncompressed_yuy2(int fid, const void *addr, int width, int height, int pitch)
+{
+	unsigned char *yuy2_frame = jpegenc_buffer_addr;
+	int yuy2_frame_size = width * height * 2;
+
+	int ret;
+	uint64_t time1, time2, time3;
+
+	time1 = ksceKernelGetSystemTimeWide();
+
+	rgba8888_to_yuy2(addr, pitch, yuy2_frame, width, width, height);
+	ksceKernelCpuDcacheAndL2WritebackRange(yuy2_frame, yuy2_frame_size);
+
+	time2 = ksceKernelGetSystemTimeWide();
+
+	ret = uvc_video_frame_transfer(fid, yuy2_frame, yuy2_frame_size);
+	if (ret < 0) {
+		LOG("Error sending frame: 0x%08X\n", ret);
+		stream = 0;
+		return ret;
+	}
+
+	time3 = ksceKernelGetSystemTimeWide();
+
+	LOG("YUY2: CSC: %lldms, Transfer: %lldms\n", (time2 - time1) / 1000,
 		(time3 - time2) / 1000);
 
 	return 0;
@@ -692,15 +780,12 @@ static int send_frame(void)
 
 	int ret;
 	SceUID cur_pid;
-	void *rgba_buff_addr;
+	void *fb_addr;
 	unsigned int fb_index;
-	SceUID userblock;
 	SceUID kernelblock;
 	SceDisplayFrameBufInfo fb;
 
 	cur_pid = ksceKernelGetProcessId();
-	rgba_buff_addr = NULL;
-
 	fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
 
 	memset(&fb, 0, sizeof(fb));
@@ -710,6 +795,7 @@ static int send_frame(void)
 		return ret;
 
 	if (fb.pid != cur_pid) {
+		SceUID userblock;
 		// LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
 
 		userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
@@ -734,24 +820,27 @@ static int send_frame(void)
 
 		LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock);
 
-		void *base = NULL;
-		ret = ksceKernelGetMemBlockBase(kernelblock, &base);
+		ret = ksceKernelGetMemBlockBase(kernelblock, &fb_addr);
 		if (ret < 0) {
 			ksceKernelFreeMemBlock(kernelblock);
 			return ret;
 		}
-
-		rgba_buff_addr = base;
 	} else {
-		rgba_buff_addr = fb.framebuf.base;
+		fb_addr = fb.framebuf.base;
 	}
 
 	switch (uvc_probe_control_setting.bFormatIndex) {
-	case FORMAT_INDEX_MPEG:
-		ret = send_frame_mpeg(fid, rgba_buff_addr, fb.framebuf.pitch);
+	case FORMAT_INDEX_MJPEG:
+		ret = send_frame_mjpeg(fid, fb_addr, fb.framebuf.width,
+				       fb.framebuf.height, fb.framebuf.pitch);
 		break;
-	case FORMAT_INDEX_UNCOMPRESSED:
-		ret = send_frame_uncompressed(fid, rgba_buff_addr, fb.framebuf.pitch);;
+	case FORMAT_INDEX_UNCOMPRESSED_NV12:
+		ret = send_frame_uncompressed_nv12(fid, fb_addr, fb.framebuf.width,
+						   fb.framebuf.height, fb.framebuf.pitch);
+		break;
+	case FORMAT_INDEX_UNCOMPRESSED_YUY2:
+		ret = send_frame_uncompressed_yuy2(fid, fb_addr, fb.framebuf.width,
+						   fb.framebuf.height, fb.framebuf.pitch);
 		break;
 	}
 
