@@ -27,8 +27,6 @@
 #define FORMAT_INDEX_UNCOMPRESSED_NV12	2
 #define FORMAT_INDEX_UNCOMPRESSED_YUY2	3
 
-#define ENABLE_UNCOMPRESSED_FORMATS	1
-
 /*
  * Helper macros
  */
@@ -134,30 +132,24 @@ unsigned char video_control_specific_endpoint_descriptors[] = {
 	0x40,0x00,                      /* Max packet size = 64 bytes */
 };
 
-DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 1);
+DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 3);
 DECLARE_UVC_FRAME_UNCOMPRESSED(1);
 DECLARE_UVC_FRAME_MJPEG(1);
 
 static struct __attribute__((packed)) {
-	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
+	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 3) input_header_descriptor;
 	struct uvc_format_mjpeg format_mjpeg;
 	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
-#if ENABLE_UNCOMPRESSED_FORMATS
 	struct uvc_format_uncompressed format_uncompressed_nv12;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_nv12;
 	struct uvc_format_uncompressed format_uncompressed_yuy2;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_yuy2;
-#endif
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_INPUT_HEADER,
-#if ENABLE_UNCOMPRESSED_FORMATS
 		.bNumFormats			= 3,
-#else
-		.bNumFormats			= 1,
-#endif
 		.wTotalLength			= sizeof(video_streaming_descriptors),
 		.bEndpointAddress		= 0x83,
 		.bmInfo				= 0,
@@ -166,7 +158,7 @@ static struct __attribute__((packed)) {
 		.bTriggerSupport		= 0,
 		.bTriggerUsage			= 0,
 		.bControlSize			= 1,
-		.bmaControls			= {{0}, },
+		.bmaControls			= {{0}, {0}, {0}, },
 	},
 	.format_mjpeg = {
 		.bLength			= sizeof(video_streaming_descriptors.format_mjpeg),
@@ -196,7 +188,6 @@ static struct __attribute__((packed)) {
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
 	},
-#if ENABLE_UNCOMPRESSED_FORMATS
 	.format_uncompressed_nv12 = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
@@ -255,7 +246,6 @@ static struct __attribute__((packed)) {
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
 	},
-#endif
 };
 
 /* Endpoint blocks */
