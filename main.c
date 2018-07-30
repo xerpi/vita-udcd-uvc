@@ -45,11 +45,7 @@ extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
 
 static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.bmHint				= 0,
-#if ENABLE_UNCOMPRESSED_FORMATS
 	.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED_NV12,
-#else
-	.bFormatIndex			= FORMAT_INDEX_MJPEG,
-#endif
 	.bFrameIndex			= 1,
 	.dwFrameInterval		= FPS_TO_INTERVAL(60),
 	.wKeyFrameRate			= 0,
@@ -57,11 +53,7 @@ static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.wCompQuality			= 0,
 	.wCompWindowSize		= 0,
 	.wDelay				= 0,
-#if ENABLE_UNCOMPRESSED_FORMATS
 	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE_NV12,
-#else
-	.dwMaxVideoFrameSize		= VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT,
-#endif
 	.dwMaxPayloadTransferSize	= MAX_PAYLOAD_TRANSFER_SIZE,
 	.dwClockFrequency		= 0,
 	.bmFramingInfo			= 0,
