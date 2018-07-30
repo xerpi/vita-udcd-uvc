@@ -55,7 +55,7 @@ DECLARE_UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3);
 static struct __attribute__((packed)) {
 	struct UVC_HEADER_DESCRIPTOR(1) header_descriptor;
 	struct uvc_camera_terminal_descriptor input_camera_terminal_descriptor;
-	struct uvc_processing_unit_descriptor processing_unit_descriptor;
+	struct uvc_processing_unit_descriptor_uvc_1_1 processing_unit_descriptor;
 	struct UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3) extension_unit_descriptor;
 	struct uvc_output_terminal_descriptor output_terminal_descriptor;
 } video_control_descriptors = {
@@ -93,6 +93,7 @@ static struct __attribute__((packed)) {
 		.bControlSize			= 2,
 		.bmControls			= {0, 0},
 		.iProcessing			= 0,
+		.bmVideoStandards		= 0,
 	},
 	.extension_unit_descriptor = {
 		.bLength			= sizeof(video_control_descriptors.extension_unit_descriptor),
