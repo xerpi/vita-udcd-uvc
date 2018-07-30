@@ -140,10 +140,13 @@ static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 3) input_header_descriptor;
 	struct uvc_format_mjpeg format_mjpeg;
 	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
+	struct uvc_color_matching_descriptor format_uncompressed_mjpeg_color_matching;
 	struct uvc_format_uncompressed format_uncompressed_nv12;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_nv12;
+	struct uvc_color_matching_descriptor format_uncompressed_nv12_color_matching;
 	struct uvc_format_uncompressed format_uncompressed_yuy2;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_yuy2;
+	struct uvc_color_matching_descriptor format_uncompressed_yuy2_color_matching;
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
@@ -188,6 +191,14 @@ static struct __attribute__((packed)) {
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
 	},
+	.format_uncompressed_mjpeg_color_matching = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_mjpeg_color_matching),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_COLORFORMAT,
+		.bColorPrimaries		= 0,
+		.bTransferCharacteristics	= 0,
+		.bMatrixCoefficients		= 0,
+	},
 	.format_uncompressed_nv12 = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
@@ -217,6 +228,14 @@ static struct __attribute__((packed)) {
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
 	},
+	.format_uncompressed_nv12_color_matching = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12_color_matching),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_COLORFORMAT,
+		.bColorPrimaries		= 0,
+		.bTransferCharacteristics	= 0,
+		.bMatrixCoefficients		= 0,
+	},
 	.format_uncompressed_yuy2 = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_yuy2),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
@@ -245,6 +264,14 @@ static struct __attribute__((packed)) {
 		.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 		.bFrameIntervalType		= 1,
 		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
+	},
+	.format_uncompressed_yuy2_color_matching = {
+		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_yuy2_color_matching),
+		.bDescriptorType		= USB_DT_CS_INTERFACE,
+		.bDescriptorSubType		= UVC_VS_COLORFORMAT,
+		.bColorPrimaries		= 0,
+		.bTransferCharacteristics	= 0,
+		.bMatrixCoefficients		= 0,
 	},
 };
 
