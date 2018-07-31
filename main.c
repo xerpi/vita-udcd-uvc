@@ -41,7 +41,7 @@ extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
 #define VIDEO_FRAME_HEIGHT		544
 #define VIDEO_FRAME_SIZE_NV12		((VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3) / 2)
 
-#define PAYLOAD_HEADER_SIZE		12
+#define PAYLOAD_HEADER_SIZE		2
 
 static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.bmHint				= 0,
@@ -516,10 +516,8 @@ static unsigned int uvc_payload_transfer(const unsigned char *data,
 	unsigned int first_size;
 
 	unsigned char payload_header[PAYLOAD_HEADER_SIZE] = {
-		PAYLOAD_HEADER_SIZE,                /* Header Length */
-		UVC_STREAM_EOH,                     /* Bit field header field */
-		0x00, 0x00, 0x00, 0x00,             /* Presentation time stamp field */
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00  /* Source clock reference field */
+		PAYLOAD_HEADER_SIZE,	/* Header Length */
+		UVC_STREAM_EOH		/* Bit field header field */
 	};
 
 	if (fid)
