@@ -74,6 +74,9 @@ static SceUID uvc_event_flag_id;
 static int uvc_thread_run;
 static int stream;
 
+static SceUID payload_first_packet_uid;
+static unsigned char *payload_first_packet_addr;
+
 static SceUID req_list_memblock;
 static void *req_list_addr;
 SceUID req_list_evflag;
@@ -508,8 +511,6 @@ static unsigned int uvc_payload_transfer(const unsigned char *data,
 					 int fid, int eof,
 					 unsigned int *written)
 {
-	static unsigned char packet[MAX_PACKET_SIZE] __attribute__((aligned(512)));
-
 	int ret;
 	unsigned int pend_size = transfer_size;
 	unsigned int offset = 0;
@@ -535,11 +536,11 @@ static unsigned int uvc_payload_transfer(const unsigned char *data,
 	/*
 	 * The first packet of the transfer includes the payload header.
 	 */
-	memcpy(&packet[0], payload_header, PAYLOAD_HEADER_SIZE);
-	memcpy(&packet[PAYLOAD_HEADER_SIZE], &data[offset],
+	memcpy(&payload_first_packet_addr[0], payload_header, PAYLOAD_HEADER_SIZE);
+	memcpy(&payload_first_packet_addr[PAYLOAD_HEADER_SIZE], &data[offset],
 	       first_size - PAYLOAD_HEADER_SIZE);
-	ksceKernelCpuDcacheAndL2WritebackRange(packet, first_size);
-	ret = req_list_enqueue(packet, first_size);
+	ksceKernelCpuDcacheAndL2WritebackRange(payload_first_packet_addr, first_size);
+	ret = req_list_enqueue(payload_first_packet_addr, first_size);
 	if (ret < 0)
 		return ret;
 
@@ -1138,6 +1139,7 @@ int module_start(SceSize argc, const void *args)
 {
 	int ret;
 	tai_module_info_t SceUdcd_modinfo;
+	SceKernelAllocMemBlockKernelOpt opt;
 
 	log_reset();
 
@@ -1182,6 +1184,27 @@ int module_start(SceSize argc, const void *args)
 		goto err_destroy_thread;
 	}
 
+	/*
+	 * Allocate a physically contiguous buffer for the first
+	 * UVC Payload Transfer packet
+	 */
+	memset(&opt, 0, sizeof(opt));
+	opt.size = sizeof(opt);
+	opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_PHYCONT;
+
+	payload_first_packet_uid = ksceKernelAllocMemBlock("uvc_first_packet",
+		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
+		ALIGN(MAX_PACKET_SIZE, 4 * 1024), &opt);
+
+	ksceKernelGetMemBlockBase(payload_first_packet_uid,
+				  (void **)&payload_first_packet_addr);
+
+	/*
+	 * Set the current streaming settings to the default ones.
+	 */
+	memcpy(&uvc_probe_control_setting, &uvc_probe_control_setting_default,
+	       sizeof(uvc_probe_control_setting));
+
 	req_list_init();
 
 	ret = ksceUdcdRegister(&uvc_udcd_driver);
@@ -1189,12 +1212,6 @@ int module_start(SceSize argc, const void *args)
 		LOG("Error registering the UDCD driver (0x%08X)\n", ret);
 		goto err_delete_event_flag;
 	}
-
-	/*
-	 * Set the current streaming settings to the default ones.
-	 */
-	memcpy(&uvc_probe_control_setting, &uvc_probe_control_setting_default,
-	       sizeof(uvc_probe_control_setting));
 
 	uvc_thread_run = 1;
 
@@ -1227,6 +1244,8 @@ int module_stop(SceSize argc, const void *args)
 	ksceKernelDeleteThread(uvc_thread_id);
 
 	req_list_fini();
+
+	ksceKernelFreeMemBlock(payload_first_packet_uid);
 
 	ksceUdcdDeactivate();
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
