@@ -18,10 +18,8 @@
 #define STREAM_INTERFACE		1
 
 #define INTERFACE_CTRL_ID		0
-#define CAMERA_TERMINAL_ID		1
-#define PROCESSING_UNIT_ID		2
-#define EXTENSION_UNIT_ID		3
-#define OUTPUT_TERMINAL_ID		4
+#define INPUT_TERMINAL_ID		1
+#define OUTPUT_TERMINAL_ID		2
 
 #define FORMAT_INDEX_MJPEG		1
 #define FORMAT_INDEX_UNCOMPRESSED_NV12	2
@@ -52,9 +50,7 @@ DECLARE_UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3);
 
 static struct __attribute__((packed)) {
 	struct UVC_HEADER_DESCRIPTOR(1) header_descriptor;
-	struct uvc_camera_terminal_descriptor input_camera_terminal_descriptor;
-	struct uvc_processing_unit_descriptor_uvc_1_1 processing_unit_descriptor;
-	struct UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3) extension_unit_descriptor;
+	struct uvc_input_terminal_descriptor input_terminal_descriptor;
 	struct uvc_output_terminal_descriptor output_terminal_descriptor;
 } video_control_descriptors = {
 	.header_descriptor = {
@@ -67,49 +63,14 @@ static struct __attribute__((packed)) {
 		.bInCollection			= 1,
 		.baInterfaceNr			= {STREAM_INTERFACE},
 	},
-	.input_camera_terminal_descriptor = {
-		.bLength			= sizeof(video_control_descriptors.input_camera_terminal_descriptor),
+	.input_terminal_descriptor = {
+		.bLength			= sizeof(video_control_descriptors.input_terminal_descriptor),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VC_INPUT_TERMINAL,
-		.bTerminalID			= CAMERA_TERMINAL_ID,
-		.wTerminalType			= UVC_ITT_CAMERA,
+		.bTerminalID			= INPUT_TERMINAL_ID,
+		.wTerminalType			= UVC_ITT_VENDOR_SPECIFIC,
 		.bAssocTerminal			= 0,
 		.iTerminal			= 0,
-		.wObjectiveFocalLengthMin	= 0,
-		.wObjectiveFocalLengthMax	= 0,
-		.wOcularFocalLength		= 0,
-		.bControlSize			= 3,
-		.bmControls			= {0, 0, 0},
-	},
-	.processing_unit_descriptor = {
-		.bLength			= sizeof(video_control_descriptors.processing_unit_descriptor),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VC_PROCESSING_UNIT,
-		.bUnitID			= PROCESSING_UNIT_ID,
-		.bSourceID			= CAMERA_TERMINAL_ID,
-		.wMaxMultiplier			= 0x4000,
-		.bControlSize			= 2,
-		.bmControls			= {0, 0},
-		.iProcessing			= 0,
-		.bmVideoStandards		= 0,
-	},
-	.extension_unit_descriptor = {
-		.bLength			= sizeof(video_control_descriptors.extension_unit_descriptor),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VC_EXTENSION_UNIT,
-		.bUnitID			= EXTENSION_UNIT_ID,
-		.guidExtensionCode		= {
-			0xFF, 0xFF, 0xFF, 0xFF,
-			0xFF, 0xFF, 0xFF, 0xFF,
-			0xFF, 0xFF, 0xFF, 0xFF,
-			0xFF, 0xFF, 0xFF, 0xFF,
-		},
-		.bNumControls			= 0,
-		.bNrInPins			= 1,
-		.baSourceID			= {EXTENSION_UNIT_ID},
-		.bControlSize			= 3,
-		.bmControls			= {0, 0, 0},
-		.iExtension			= 0,
 	},
 	.output_terminal_descriptor = {
 		.bLength			= sizeof(video_control_descriptors.output_terminal_descriptor),
@@ -118,7 +79,7 @@ static struct __attribute__((packed)) {
 		.bTerminalID			= OUTPUT_TERMINAL_ID,
 		.wTerminalType			= UVC_TT_STREAMING,
 		.bAssocTerminal			= 0,
-		.bSourceID			= EXTENSION_UNIT_ID,
+		.bSourceID			= INPUT_TERMINAL_ID,
 		.iTerminal			= 0,
 	},
 };

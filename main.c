@@ -294,19 +294,9 @@ static void uvc_handle_interface_ctrl_req(const SceUdcdEP0DeviceRequest *req)
 	LOG("  uvc_handle_interface_ctrl_req\n");
 }
 
-static void uvc_handle_camera_terminal_req(const SceUdcdEP0DeviceRequest *req)
+static void uvc_handle_input_terminal_req(const SceUdcdEP0DeviceRequest *req)
 {
-	LOG("  uvc_handle_camera_terminal_req\n");
-}
-
-static void uvc_handle_processing_unit_req(const SceUdcdEP0DeviceRequest *req)
-{
-	LOG("  uvc_handle_processing_unit_req\n");
-}
-
-static void uvc_handle_extension_unit_req(const SceUdcdEP0DeviceRequest *req)
-{
-	LOG("  uvc_handle_extension_unit_req\n");
+	LOG("  uvc_handle_input_terminal_req %x, %x\n", req->wValue, req->bRequest);
 }
 
 static void uvc_handle_output_terminal_req(const SceUdcdEP0DeviceRequest *req)
@@ -328,10 +318,12 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 		case UVC_GET_MIN:
 		case UVC_GET_MAX:
 		case UVC_GET_DEF:
+			LOG("Probe GET_DEF, bFormatIndex: %d\n", uvc_probe_control_setting_default.bFormatIndex);
 			usb_ep0_req_send(&uvc_probe_control_setting_default,
 					 sizeof(uvc_probe_control_setting_default));
 			break;
 		case UVC_GET_CUR:
+			LOG("Probe GET_CUR, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
 			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
@@ -404,14 +396,8 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 			case INTERFACE_CTRL_ID:
 				uvc_handle_interface_ctrl_req(req);
 				break;
-			case CAMERA_TERMINAL_ID:
-				uvc_handle_camera_terminal_req(req);
-				break;
-			case PROCESSING_UNIT_ID:
-				uvc_handle_processing_unit_req(req);
-				break;
-			case EXTENSION_UNIT_ID:
-				uvc_handle_extension_unit_req(req);
+			case INPUT_TERMINAL_ID:
+				uvc_handle_input_terminal_req(req);
 				break;
 			case OUTPUT_TERMINAL_ID:
 				uvc_handle_output_terminal_req(req);
