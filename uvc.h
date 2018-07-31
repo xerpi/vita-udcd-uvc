@@ -1,11 +1,13 @@
 #ifndef UVC_H
 #define UVC_H
 
+#include <stdint.h>
+
 #define __packed__ packed
 
-typedef unsigned char __u8;
-typedef unsigned short __u16;
-typedef unsigned int __u32;
+typedef uint8_t __u8;
+typedef uint16_t __u16;
+typedef uint32_t __u32;
 
 /*
  * Copied from https://github.com/torvalds/linux/blob/master/include/uapi/linux/usb/video.h
