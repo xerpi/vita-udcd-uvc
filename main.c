@@ -769,17 +769,19 @@ static int send_frame(void)
 
 	int ret;
 	SceUID cur_pid;
+	int head;
+	int fb_index;
 	void *fb_addr;
-	unsigned int fb_index;
 	SceUID kernelblock;
 	SceDisplayFrameBufInfo fb;
 
+	head = ksceDisplayGetPrimaryHead();
 	cur_pid = ksceKernelGetProcessId();
 	fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
 
 	memset(&fb, 0, sizeof(fb));
 	fb.size = sizeof(fb);
-	ret = ksceDisplayGetFrameBufInfoForPid(-1, 0, fb_index, &fb);
+	ret = ksceDisplayGetFrameBufInfoForPid(-1, head, fb_index, &fb);
 	if (ret < 0)
 		return ret;
 
