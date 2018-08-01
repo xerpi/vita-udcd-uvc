@@ -84,11 +84,9 @@ static unsigned int req_list_size;
 
 static int usb_ep0_req_send(const void *data, unsigned int size)
 {
-	static SceUdcdDeviceRequest reqs[32];
-	static int n = 0;
-	int idx = n++ % (sizeof(reqs) / sizeof(*reqs));
+	static SceUdcdDeviceRequest req;
 
-	reqs[idx] = (SceUdcdDeviceRequest){
+	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
 		.data = (void *)data,
 		.unk = 0,
@@ -102,11 +100,9 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
-	ksceKernelDelayThread(1000);
-
 	ksceKernelCpuDcacheAndL2WritebackRange(data, size);
 
-	return ksceUdcdReqSend(&reqs[idx]);
+	return ksceUdcdReqSend(&req);
 }
 
 static void usb_ep0_req_recv_on_complete(SceUdcdDeviceRequest *req);
@@ -131,8 +127,8 @@ static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 		.physicalAddress = NULL
 	};
 
-	ksceKernelCpuDcacheAndL2InvalidateRange(pending_recv.buffer,
-						pending_recv.ep0_req.wLength);
+	ksceKernelCpuDcacheAndL2WritebackInvalidateRange(pending_recv.buffer,
+		pending_recv.ep0_req.wLength);
 
 	return ksceUdcdReqRecv(&req);
 }
