@@ -21,9 +21,7 @@
 #define INPUT_TERMINAL_ID		1
 #define OUTPUT_TERMINAL_ID		2
 
-#define FORMAT_INDEX_MJPEG		1
-#define FORMAT_INDEX_UNCOMPRESSED_NV12	2
-#define FORMAT_INDEX_UNCOMPRESSED_YUY2	3
+#define FORMAT_INDEX_UNCOMPRESSED_NV12	1
 
 /*
  * Helper macros
@@ -95,19 +93,12 @@ unsigned char video_control_specific_endpoint_descriptors[] = {
 
 DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 3);
 DECLARE_UVC_FRAME_UNCOMPRESSED(1);
-DECLARE_UVC_FRAME_MJPEG(1);
 
 static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 3) input_header_descriptor;
-	struct uvc_format_mjpeg format_mjpeg;
-	struct UVC_FRAME_MJPEG(1) frame_mjpeg;
-	struct uvc_color_matching_descriptor format_uncompressed_mjpeg_color_matching;
 	struct uvc_format_uncompressed format_uncompressed_nv12;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_nv12;
 	struct uvc_color_matching_descriptor format_uncompressed_nv12_color_matching;
-	struct uvc_format_uncompressed format_uncompressed_yuy2;
-	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_yuy2;
-	struct uvc_color_matching_descriptor format_uncompressed_yuy2_color_matching;
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
@@ -123,42 +114,6 @@ static struct __attribute__((packed)) {
 		.bTriggerUsage			= 0,
 		.bControlSize			= 1,
 		.bmaControls			= {{0}, {0}, {0}, },
-	},
-	.format_mjpeg = {
-		.bLength			= sizeof(video_streaming_descriptors.format_mjpeg),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_FORMAT_MJPEG,
-		.bFormatIndex			= FORMAT_INDEX_MJPEG,
-		.bNumFrameDescriptors		= 1,
-		.bmFlags			= 0,
-		.bDefaultFrameIndex		= 1,
-		.bAspectRatioX			= 0,
-		.bAspectRatioY			= 0,
-		.bmInterfaceFlags		= 0,
-		.bCopyProtect			= 0,
-	},
-	.frame_mjpeg = {
-		.bLength			= sizeof(video_streaming_descriptors.frame_mjpeg),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_FRAME_MJPEG,
-		.bFrameIndex			= 1,
-		.bmCapabilities			= 1,
-		.wWidth				= 960,
-		.wHeight			= 544,
-		.dwMinBitRate			= FRAME_BITRATE(960, 544, 16, FPS_TO_INTERVAL(60)),
-		.dwMaxBitRate			= FRAME_BITRATE(960, 544, 16, FPS_TO_INTERVAL(60)),
-		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
-		.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
-		.bFrameIntervalType		= 1,
-		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
-	},
-	.format_uncompressed_mjpeg_color_matching = {
-		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_mjpeg_color_matching),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_COLORFORMAT,
-		.bColorPrimaries		= 0,
-		.bTransferCharacteristics	= 0,
-		.bMatrixCoefficients		= 0,
 	},
 	.format_uncompressed_nv12 = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12),
@@ -191,43 +146,6 @@ static struct __attribute__((packed)) {
 	},
 	.format_uncompressed_nv12_color_matching = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12_color_matching),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_COLORFORMAT,
-		.bColorPrimaries		= 0,
-		.bTransferCharacteristics	= 0,
-		.bMatrixCoefficients		= 0,
-	},
-	.format_uncompressed_yuy2 = {
-		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_yuy2),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
-		.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED_YUY2,
-		.bNumFrameDescriptors		= 1,
-		.guidFormat			= UVC_GUID_FORMAT_YUY2,
-		.bBitsPerPixel			= 16,
-		.bDefaultFrameIndex		= 1,
-		.bAspectRatioX			= 0,
-		.bAspectRatioY			= 0,
-		.bmInterfaceFlags		= 0,
-		.bCopyProtect			= 0,
-	},
-	.frame_uncompressed_yuy2 = {
-		.bLength			= sizeof(video_streaming_descriptors.frame_uncompressed_yuy2),
-		.bDescriptorType		= USB_DT_CS_INTERFACE,
-		.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
-		.bFrameIndex			= 1,
-		.bmCapabilities			= 0,
-		.wWidth				= 960,
-		.wHeight			= 544,
-		.dwMinBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
-		.dwMaxBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
-		.dwMaxVideoFrameBufferSize	= 960 * 544 * 2,
-		.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
-		.bFrameIntervalType		= 1,
-		.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
-	},
-	.format_uncompressed_yuy2_color_matching = {
-		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_yuy2_color_matching),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_COLORFORMAT,
 		.bColorPrimaries		= 0,

@@ -4,15 +4,13 @@
 #include <psp2kern/kernel/cpu.h>
 #include <psp2kern/udcd.h>
 #include <psp2kern/display.h>
-#include <psp2kern/avcodec/jpegenc.h>
 #include <psp2kern/lowio/iftu.h>
+#include <taihen.h>
 #include "usb_descriptors.h"
-#include "conversion.h"
 #include "uvc.h"
 #include "utils.h"
 #include "log.h"
 #include "draw.h"
-#include <taihen.h>
 
 #ifdef RELEASE
 #define LOG(...) (void)0
@@ -73,6 +71,9 @@ static SceUID uvc_thread_id;
 static SceUID uvc_event_flag_id;
 static int uvc_thread_run;
 static int stream;
+
+static SceUID csc_dest_buffer_uid;
+static void *csc_dest_buffer_addr;
 
 static SceUID payload_first_packet_uid;
 static unsigned char *payload_first_packet_addr;
@@ -498,12 +499,6 @@ static SceUdcdDriver uvc_udcd_driver = {
 	.user_data			= NULL
 };
 
-static SceJpegEncoderContext jpegenc_context;
-static SceUID jpegenc_context_uid;
-static void *jpegenc_context_addr;
-static SceUID jpegenc_buffer_uid;
-static void *jpegenc_buffer_addr;
-
 static unsigned int uvc_payload_transfer(const unsigned char *data,
 					 unsigned int transfer_size,
 					 int fid, int eof,
@@ -600,57 +595,16 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 int uvc_start(void);
 int uvc_stop(void);
 
-static int send_frame_mjpeg(int fid, const void *addr, int width, int height, int pitch)
+static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *fb_info)
 {
-	int ret;
-	uint64_t time1, time2, time3, time4;
-	uint64_t delta_csc, delta_enc, delta_xfer;
-
-	time1 = ksceKernelGetSystemTimeWide();
-
-	ret = ksceJpegEncoderCsc(jpegenc_context, jpegenc_buffer_addr, addr,
-				 pitch, SCE_JPEGENC_PIXELFORMAT_ARGB8888);
-	if (ret < 0) {
-		LOG("Error ksceJpegEncoderCsc: 0x%08X\n", ret);
-		return ret;
-	}
-
-	time2 = ksceKernelGetSystemTimeWide();
-
-	ret = ksceJpegEncoderEncode(jpegenc_context, jpegenc_buffer_addr);
-	if (ret < 0) {
-		LOG("Error ksceJpegEncoderEncode: 0x%08X\n", ret);
-		return ret;
-	}
-
-	time3 = ksceKernelGetSystemTimeWide();
-
-	ret = uvc_video_frame_transfer(fid, (unsigned char *)jpegenc_buffer_addr + width * height * 2, ret);
-	if (ret < 0) {
-		LOG("Error sending frame: 0x%08X\n", ret);
-		stream = 0;
-		return ret;
-	}
-
-	time4 = ksceKernelGetSystemTimeWide();
-
-	delta_csc = time2 - time1;
-	delta_enc = time3 - time2;
-	delta_xfer = time4 - time3;
-
-	LOG("MJPEG: CSC: %lldms, JPEG enc: %lldms, Transfer: %lldms\n",
-	    delta_csc / 1000, delta_enc / 1000,
-	    delta_xfer / 1000);
-
-	return 0;
-}
-
-static int send_frame_uncompressed_nv12(int fid, const void *addr, int width, int height, int pitch)
-{
-	unsigned char *nv12_frame = jpegenc_buffer_addr;
-
 	int ret;
 	uint64_t time1, time2, time3;
+	uintptr_t dst_paddr;
+	uintptr_t src_paddr = fb_info->paddr;
+	unsigned int width = fb_info->framebuf.width;
+	unsigned int height = fb_info->framebuf.height;
+	unsigned int pitch = fb_info->framebuf.pitch;
+	unsigned char *nv12_frame = csc_dest_buffer_addr;
 
 	time1 = ksceKernelGetSystemTimeWide();
 
@@ -664,9 +618,7 @@ static int send_frame_uncompressed_nv12(int fid, const void *addr, int width, in
 		}
 	};
 
-	uintptr_t in_paddr, out_paddr;
-	ksceKernelGetPaddr(addr, &in_paddr);
-	ksceKernelGetPaddr(nv12_frame, &out_paddr);
+	ksceKernelGetPaddr(nv12_frame, &dst_paddr);
 
 	SceIftuConvParams params;
 	memset(&params, 0, sizeof(params));
@@ -688,7 +640,7 @@ static int send_frame_uncompressed_nv12(int fid, const void *addr, int width, in
 	src.fb.height = height;
 	src.fb.leftover_stride = 0;
 	src.fb.leftover_align = 0;
-	src.fb.paddr0 = in_paddr;
+	src.fb.paddr0 = src_paddr;
 	src.unk20 = 0;
 	src.src_x = 0;
 	src.src_y = 0;
@@ -710,8 +662,8 @@ static int send_frame_uncompressed_nv12(int fid, const void *addr, int width, in
 	dst.height = height;
 	dst.leftover_stride = 0;
 	dst.leftover_align = 0;
-	dst.paddr0 = out_paddr;
-	dst.paddr1 = out_paddr + width * height;
+	dst.paddr0 = dst_paddr;
+	dst.paddr1 = dst_paddr + width * height;
 
 	ksceIftuCsc(&dst, &src, &params);
 
@@ -732,115 +684,31 @@ static int send_frame_uncompressed_nv12(int fid, const void *addr, int width, in
 	return 0;
 }
 
-static int send_frame_uncompressed_yuy2(int fid, const void *addr, int width, int height, int pitch)
-{
-	unsigned char *yuy2_frame = jpegenc_buffer_addr;
-	int yuy2_frame_size = width * height * 2;
-
-	int ret;
-	uint64_t time1, time2, time3;
-
-	time1 = ksceKernelGetSystemTimeWide();
-
-	rgba8888_to_yuy2(addr, pitch, yuy2_frame, width, width, height);
-	ksceKernelCpuDcacheAndL2WritebackRange(yuy2_frame, yuy2_frame_size);
-
-	time2 = ksceKernelGetSystemTimeWide();
-
-	ret = uvc_video_frame_transfer(fid, yuy2_frame, yuy2_frame_size);
-	if (ret < 0) {
-		LOG("Error sending frame: 0x%08X\n", ret);
-		stream = 0;
-		return ret;
-	}
-
-	time3 = ksceKernelGetSystemTimeWide();
-
-	LOG("YUY2: CSC: %lldms, Transfer: %lldms\n", (time2 - time1) / 1000,
-		(time3 - time2) / 1000);
-
-	return 0;
-}
-
 static int send_frame(void)
 {
 	static int fid = 0;
 
 	int ret;
-	SceUID cur_pid;
-	int head;
-	int fb_index;
-	void *fb_addr;
-	SceUID kernelblock;
-	SceDisplayFrameBufInfo fb;
+	SceDisplayFrameBufInfo fb_info;
+	int head = ksceDisplayGetPrimaryHead();
+	int fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
 
-	head = ksceDisplayGetPrimaryHead();
-	cur_pid = ksceKernelGetProcessId();
-	fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
-
-	memset(&fb, 0, sizeof(fb));
-	fb.size = sizeof(fb);
-	ret = ksceDisplayGetFrameBufInfoForPid(-1, head, fb_index, &fb);
+	memset(&fb_info, 0, sizeof(fb_info));
+	fb_info.size = sizeof(fb_info);
+	ret = ksceDisplayGetFrameBufInfoForPid(-1, head, fb_index, &fb_info);
 	if (ret < 0)
 		return ret;
 
-	if (fb.pid != cur_pid) {
-		SceUID userblock;
-		// LOG("Cur PID: 0x%08X, FB PID: 0x%08X\n", cur_pid, fb.pid);
-
-		userblock = ksceKernelFindMemBlockByAddrForPid(fb.pid, fb.framebuf.base, 0);
-		if (userblock < 0)
-			return userblock;
-
-		SceKernelAllocMemBlockKernelOpt opt;
-		opt.size = sizeof(opt);
-		opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_MIRROR_BLOCKID | 0x1000000;
-		opt.mirror_blockid = userblock;
-
-		/*
-		 * It looks like when creating a memory block mirror,
-		 * extra memory will be allocated if size != 0.
-		 */
-		kernelblock = ksceKernelAllocMemBlock("mirror_block",
-			SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, 0, &opt);
-		if (kernelblock < 0) {
-			LOG("Error mirroring block: 0x%08X\n", kernelblock);
-			return kernelblock;
-		}
-
-		/* LOG("userblock: 0x%08X, kernelblock: 0x%08X\n", userblock, kernelblock); */
-
-		ret = ksceKernelGetMemBlockBase(kernelblock, &fb_addr);
-		if (ret < 0) {
-			ksceKernelFreeMemBlock(kernelblock);
-			return ret;
-		}
-	} else {
-		fb_addr = fb.framebuf.base;
-	}
-
 	switch (uvc_probe_control_setting.bFormatIndex) {
-	case FORMAT_INDEX_MJPEG:
-		ret = send_frame_mjpeg(fid, fb_addr, fb.framebuf.width,
-				       fb.framebuf.height, fb.framebuf.pitch);
-		break;
 	case FORMAT_INDEX_UNCOMPRESSED_NV12:
-		ret = send_frame_uncompressed_nv12(fid, fb_addr, fb.framebuf.width,
-						   fb.framebuf.height, fb.framebuf.pitch);
-		break;
-	case FORMAT_INDEX_UNCOMPRESSED_YUY2:
-		ret = send_frame_uncompressed_yuy2(fid, fb_addr, fb.framebuf.width,
-						   fb.framebuf.height, fb.framebuf.pitch);
+		ret = send_frame_uncompressed_nv12(fid, &fb_info);
 		break;
 	}
+
+	if (ret < 0)
+		return ret;
 
 	fid ^= 1;
-
-	if (fb.pid != cur_pid) {
-		ret = ksceKernelFreeMemBlock(kernelblock);
-		if (ret < 0)
-			LOG("Error free kernelblock: 0x%08X\n", ret);
-	}
 
 	return 0;
 }
@@ -883,39 +751,16 @@ static int uvc_thread(SceSize args, void *argp)
 	return 0;
 }
 
-static int jpegenc_init(unsigned int width, unsigned int height, unsigned int streambuf_size)
+static int csc_dest_init(unsigned int size)
 {
 	int ret;
-	unsigned int context_size;
-	unsigned int totalbuf_size;
-	unsigned int framebuf_size = width * height * 2;
-	SceJpegEncoderPixelFormat pixelformat = SCE_JPEGENC_PIXELFORMAT_YCBCR422 |
-						SCE_JPEGENC_PIXELFORMAT_CSC_ARGB_YCBCR;
-
-	framebuf_size = ALIGN(framebuf_size, 256);
-	streambuf_size = ALIGN(streambuf_size, 256);
-	totalbuf_size = ALIGN(framebuf_size + streambuf_size, 256 * 1024);
-	context_size = ALIGN(ksceJpegEncoderGetContextSize(), 4 * 1024);
-
-	jpegenc_context_uid = ksceKernelAllocMemBlock("uvc_jpegenc_context",
-		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW, context_size, NULL);
-	if (jpegenc_context_uid < 0) {
-		LOG("Error allocating JPEG encoder context: 0x%08X\n", jpegenc_context_uid);
-		return jpegenc_context_uid;
-	}
-
-	ret = ksceKernelGetMemBlockBase(jpegenc_context_uid, &jpegenc_context_addr);
-	if (ret < 0) {
-		LOG("Error getting JPEG encoder context memory addr: 0x%08X\n", ret);
-		goto err_free_context;
-	}
-
-	jpegenc_context = jpegenc_context_addr;
 
 	const int use_cdram = 0;
 	SceKernelAllocMemBlockKernelOpt opt;
 	SceKernelMemBlockType type;
 	SceKernelAllocMemBlockKernelOpt *optp;
+
+	size = ALIGN(size, 256 * 1024);
 
 	if (use_cdram) {
 		type = 0x40408006;
@@ -930,79 +775,27 @@ static int jpegenc_init(unsigned int width, unsigned int height, unsigned int st
 		optp = &opt;
 	}
 
-	jpegenc_buffer_uid = ksceKernelAllocMemBlock("uvc_jpegenc_buffer", type, totalbuf_size, optp);
-	if (jpegenc_buffer_uid < 0) {
-		LOG("Error allocating JPEG encoder memory: 0x%08X\n", jpegenc_buffer_uid);
-		ret = jpegenc_buffer_uid;
-		goto err_free_context;
+	csc_dest_buffer_uid = ksceKernelAllocMemBlock("uvc_csc_dest_buffer", type, size, optp);
+	if (csc_dest_buffer_uid < 0) {
+		LOG("Error allocating CSC dest memory: 0x%08X\n", csc_dest_buffer_uid);
+		return csc_dest_buffer_uid;
 	}
 
-	ret = ksceKernelGetMemBlockBase(jpegenc_buffer_uid, &jpegenc_buffer_addr);
+	ret = ksceKernelGetMemBlockBase(csc_dest_buffer_uid, &csc_dest_buffer_addr);
 	if (ret < 0) {
-		LOG("Error getting JPEG encoder memory addr: 0x%08X\n", ret);
-		goto err_free_buff;
+		LOG("Error getting CSC desr memory addr: 0x%08X\n", ret);
+		ksceKernelFreeMemBlock(csc_dest_buffer_uid);
+		return ret;
 	}
-
-	ret = ksceJpegEncoderInit(jpegenc_context, width, height, pixelformat,
-				  (unsigned char *)jpegenc_buffer_addr + framebuf_size,
-				  streambuf_size);
-	if (ret < 0) {
-		LOG("Error initializing the JPEG encoder: 0x%08X\n", ret);
-		goto err_free_buff;
-	}
-
-	if (!use_cdram) {
-		struct {
-			void *outBuffer;
-			void *outBufferEnd;
-			uint32_t data008;
-			uint8_t data00C;
-			uint8_t compressionRatio;
-			uint8_t data00E;
-			uint8_t data00F;
-			uint32_t data010;
-			uint16_t validRegionWidth;
-			uint16_t validRegionHeight;
-			uint16_t inWidth;
-			uint16_t inHeight;
-			uint8_t pixelformat;
-			uint8_t headerMode;
-			uint8_t unk01E;
-			uint8_t unk01F;
-			uint32_t unk020;
-			uint32_t option;
-			uint32_t data028[(0x180 - 0x028) / 4];
-		} *context_impl = jpegenc_context;
-
-		context_impl->option = 1;
-	}
-
-	ksceJpegEncoderSetCompressionRatio(jpegenc_context, 64);
-	ksceJpegEncoderSetHeaderMode(jpegenc_context, SCE_JPEGENC_HEADER_MODE_MJPEG);
 
 	return 0;
-
-err_free_buff:
-	ksceKernelFreeMemBlock(jpegenc_buffer_uid);
-	jpegenc_buffer_uid = -1;
-err_free_context:
-	ksceKernelFreeMemBlock(jpegenc_context_uid);
-	jpegenc_context_uid = -1;
-	return ret;
 }
 
-static int jpegenc_term()
+static int csc_dest_term()
 {
-	ksceJpegEncoderEnd(jpegenc_context);
-
-	if (jpegenc_buffer_uid >= 0) {
-		ksceKernelFreeMemBlock(jpegenc_buffer_uid);
-		jpegenc_buffer_uid = -1;
-	}
-
-	if (jpegenc_context_uid >= 0) {
-		ksceKernelFreeMemBlock(jpegenc_context_uid);
-		jpegenc_context_uid = -1;
+	if (csc_dest_buffer_uid >= 0) {
+		ksceKernelFreeMemBlock(csc_dest_buffer_uid);
+		csc_dest_buffer_uid = -1;
 	}
 
 	return 0;
@@ -1046,10 +839,10 @@ int uvc_start(void)
 		goto err_activate;
 	}
 
-	ret = jpegenc_init(VIDEO_FRAME_WIDTH, VIDEO_FRAME_HEIGHT, VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT);
+	ret = csc_dest_init(VIDEO_FRAME_SIZE_NV12);
 	if (ret < 0) {
-		LOG("Error initiating the JPEG encoder (0x%08X)\n", ret);
-		goto err_jpegenc_init;
+		LOG("Error allocating the CSC dest memory (0x%08X)\n", ret);
+		goto err_csc_dest_init;
 	}
 
 	/*
@@ -1094,8 +887,8 @@ int uvc_start(void)
 err_alloc_req_list:
 	ksceKernelFreeMemBlock(payload_first_packet_uid);
 err_first_pkt_alloc:
-	jpegenc_term();
-err_jpegenc_init:
+	csc_dest_term();
+err_csc_dest_init:
 	ksceUdcdDeactivate();
 err_activate:
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
@@ -1113,7 +906,7 @@ int uvc_stop(void)
 	ksceUdcdStart("USB_MTP_Driver", 0, NULL);
 	ksceUdcdActivate(0x4E4);
 
-	jpegenc_term();
+	csc_dest_term();
 
 	ksceKernelFreeMemBlock(payload_first_packet_uid);
 
@@ -1122,10 +915,6 @@ int uvc_stop(void)
 
 static SceUID SceUdcd_sub_01E1128C_hook_uid = -1;
 static tai_hook_ref_t SceUdcd_sub_01E1128C_ref;
-static SceUID SceSysmemForDriver_BC0A1D60_hook_uid = -1;
-static tai_hook_ref_t SceSysmemForDriver_BC0A1D60_hook_ref;
-static SceUID SceSysmemForDriver_22CBE925_hook_uid = -1;
-static tai_hook_ref_t SceSysmemForDriver_22CBE925_hook_ref;
 
 static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_descriptor, void *desc_data)
 {
@@ -1155,26 +944,6 @@ static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_
 	return ret;
 }
 
-int SceSysmemForDriver_BC0A1D60_hook_func(unsigned int perm, void *base, unsigned int size)
-{
-	if (perm == 0x10)
-		perm = 0x01;
-	else if (perm == 0x20)
-		perm = 0x02;
-
-	return TAI_CONTINUE(int, SceSysmemForDriver_BC0A1D60_hook_ref, perm, base, size);
-}
-
-int SceSysmemForDriver_22CBE925_hook_func(unsigned int perm, void *base, unsigned int size)
-{
-	if (perm == 0x10)
-		perm = 0x01;
-	else if (perm == 0x20)
-		perm = 0x02;
-
-	return TAI_CONTINUE(int, SceSysmemForDriver_22CBE925_hook_ref, perm, base, size);
-}
-
 void _start() __attribute__((weak, alias("module_start")));
 
 int module_start(SceSize argc, const void *args)
@@ -1196,20 +965,6 @@ int module_start(SceSize argc, const void *args)
 	SceUdcd_sub_01E1128C_hook_uid = taiHookFunctionOffsetForKernel(KERNEL_PID,
 		&SceUdcd_sub_01E1128C_ref, SceUdcd_modinfo.modid, 0,
 		0x01E1128C - 0x01E10000, 1, SceUdcd_sub_01E1128C_hook_func);
-
-	SceSysmemForDriver_BC0A1D60_hook_uid = taiHookFunctionImportForKernel(KERNEL_PID,
-		&SceSysmemForDriver_BC0A1D60_hook_ref,
-		"SceAvcodec",
-		0x6F25E18A, /* SceSysmemForDriver */
-		0xBC0A1D60,
-		SceSysmemForDriver_BC0A1D60_hook_func);
-
-	SceSysmemForDriver_22CBE925_hook_uid = taiHookFunctionImportForKernel(KERNEL_PID,
-		&SceSysmemForDriver_22CBE925_hook_ref,
-		"SceAvcodec",
-		0x6F25E18A, /* SceSysmemForDriver */
-		0x22CBE925,
-		SceSysmemForDriver_22CBE925_hook_func);
 
 	uvc_thread_id = ksceKernelCreateThread("uvc_thread", uvc_thread,
 					       0x3C, 0x1000, 0, 0x10000, 0);
@@ -1271,16 +1026,6 @@ int module_stop(SceSize argc, const void *args)
 	if (SceUdcd_sub_01E1128C_hook_uid > 0) {
 		taiHookReleaseForKernel(SceUdcd_sub_01E1128C_hook_uid,
 			SceUdcd_sub_01E1128C_ref);
-	}
-
-	if (SceSysmemForDriver_BC0A1D60_hook_uid > 0) {
-		taiHookReleaseForKernel(SceSysmemForDriver_BC0A1D60_hook_uid,
-			SceSysmemForDriver_BC0A1D60_hook_ref);
-	}
-
-	if (SceSysmemForDriver_22CBE925_hook_uid > 0) {
-		taiHookReleaseForKernel(SceSysmemForDriver_22CBE925_hook_uid,
-			SceSysmemForDriver_22CBE925_hook_ref);
 	}
 
 	unmap_framebuffer();
