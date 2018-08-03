@@ -592,9 +592,11 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	uint64_t time1, time2, time3;
 	uintptr_t dst_paddr;
 	uintptr_t src_paddr = fb_info->paddr;
-	unsigned int width = fb_info->framebuf.width;
-	unsigned int height = fb_info->framebuf.height;
-	unsigned int pitch = fb_info->framebuf.pitch;
+	unsigned int src_width_aligned = ALIGN(fb_info->framebuf.width, 16);
+	unsigned int src_pitch = fb_info->framebuf.pitch;
+	unsigned int src_height = fb_info->framebuf.height;
+	unsigned int dst_width = VIDEO_FRAME_WIDTH;
+	unsigned int dst_height = VIDEO_FRAME_HEIGHT;
 	unsigned char *nv12_frame = csc_dest_buffer_addr;
 
 	time1 = ksceKernelGetSystemTimeWide();
@@ -627,9 +629,9 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	SceIftuPlaneState src;
 	memset(&src, 0, sizeof(src));
 	src.fb.pixelformat = SCE_IFTU_PIXELFORMAT_BGRX8888;
-	src.fb.width = pitch;
-	src.fb.height = height;
-	src.fb.leftover_stride = 0;
+	src.fb.width = src_width_aligned;
+	src.fb.height = src_height;
+	src.fb.leftover_stride = (src_pitch - src_width_aligned) * 4;
 	src.fb.leftover_align = 0;
 	src.fb.paddr0 = src_paddr;
 	src.unk20 = 0;
@@ -649,18 +651,18 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	SceIftuFrameBuf dst;
 	memset(&dst, 0, sizeof(dst));
 	dst.pixelformat = SCE_IFTU_PIXELFORMAT_NV12;
-	dst.width = width;
-	dst.height = height;
+	dst.width = dst_width;
+	dst.height = dst_height;
 	dst.leftover_stride = 0;
 	dst.leftover_align = 0;
 	dst.paddr0 = dst_paddr;
-	dst.paddr1 = dst_paddr + width * height;
+	dst.paddr1 = dst_paddr + dst_width * dst_height;
 
 	ksceIftuCsc(&dst, &src, &params);
 
 	time2 = ksceKernelGetSystemTimeWide();
 
-	ret = uvc_video_frame_transfer(fid, nv12_frame, (width * height * 3) / 2);
+	ret = uvc_video_frame_transfer(fid, nv12_frame, VIDEO_FRAME_SIZE_NV12);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
