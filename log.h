@@ -10,7 +10,7 @@
 void log_reset();
 void log_write(const char *buffer, size_t length);
 
-#ifndef RELEASE
+#ifdef DEBUG
 #  define LOG_TO_FILE(...) \
 	do { \
 		char buffer[256]; \

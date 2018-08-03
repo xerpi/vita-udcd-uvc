@@ -12,9 +12,7 @@
 #include "log.h"
 #include "draw.h"
 
-#ifdef RELEASE
-#define LOG(...) (void)0
-#else
+#ifdef DEBUG
 #define LOG(s, ...) \
 	do { \
 		char __buffer[256]; \
@@ -22,6 +20,8 @@
 		LOG_TO_FILE(__buffer); \
 		console_print(__buffer); \
 	} while (0)
+#else
+#define LOG(...) (void)0
 #endif
 
 #define CEILING(x, y)			(((x) + (y) - 1) / (y))
@@ -803,7 +803,7 @@ int uvc_start(void)
 	int ret;
 	SceKernelAllocMemBlockKernelOpt opt;
 
-#ifdef RELEASE
+#ifndef DEBUG
 	ksceKernelDelayThread(5 * 1000 * 1000);
 #endif
 
@@ -948,9 +948,8 @@ int module_start(SceSize argc, const void *args)
 	int ret;
 	tai_module_info_t SceUdcd_modinfo;
 
+#ifdef DEBUG
 	log_reset();
-
-#ifndef RELEASE
 	map_framebuffer();
 #endif
 
@@ -1025,7 +1024,9 @@ int module_stop(SceSize argc, const void *args)
 			SceUdcd_sub_01E1128C_ref);
 	}
 
+#ifdef DEBUG
 	unmap_framebuffer();
+#endif
 
 	return SCE_KERNEL_STOP_SUCCESS;
 }

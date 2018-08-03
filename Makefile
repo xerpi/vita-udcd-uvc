@@ -1,5 +1,11 @@
 TARGET	= udcd_uvc
-OBJS	= main.o log.o draw.o font_data.o
+OBJS	= main.o
+
+DEBUG ?= 0
+ifeq ($(DEBUG), 1)
+	OBJS	+= log.o draw.o font_data.o
+	CFLAGS	+= -DDEBUG
+endif
 
 LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
 	-lSceSysmemForKernel_stub -lSceThreadmgrForDriver_stub -lSceCpuForKernel_stub \
@@ -8,13 +14,10 @@ LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
-CFLAGS	= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork
+CFLAGS	+= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork
 DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx
-
-release: CFLAGS += -DRELEASE
-release: $(TARGET).skprx
 
 %.skprx: %.velf
 	vita-make-fself -c $< $@
