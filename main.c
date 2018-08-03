@@ -758,13 +758,13 @@ static int csc_dest_init(unsigned int size)
 	SceKernelMemBlockType type;
 	SceKernelAllocMemBlockKernelOpt *optp;
 
-	size = ALIGN(size, 256 * 1024);
-
 	if (use_cdram) {
 		type = 0x40408006;
+		size = ALIGN(size, 256 * 1024);
 		optp = NULL;
 	} else {
-		type = 0x30808006;
+		type = 0x10208006;
+		size = ALIGN(size, 4 * 1024);
 		memset(&opt, 0, sizeof(opt));
 		opt.size = sizeof(opt);
 		opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_PHYCONT |
