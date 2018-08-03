@@ -592,7 +592,8 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	uint64_t time1, time2, time3;
 	uintptr_t dst_paddr;
 	uintptr_t src_paddr = fb_info->paddr;
-	unsigned int src_width_aligned = ALIGN(fb_info->framebuf.width, 16);
+	unsigned int src_width = fb_info->framebuf.width;
+	unsigned int src_width_aligned = ALIGN(src_width, 16);
 	unsigned int src_pitch = fb_info->framebuf.pitch;
 	unsigned int src_height = fb_info->framebuf.height;
 	unsigned int dst_width = VIDEO_FRAME_WIDTH;
@@ -637,8 +638,8 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	src.unk20 = 0;
 	src.src_x = 0;
 	src.src_y = 0;
-	src.src_w = 0x10000;
-	src.src_h = 0x10000;
+	src.src_w = (src_width * 0x10000) / 960;
+	src.src_h = (src_height * 0x10000) / 544;
 	src.dst_x = 0;
 	src.dst_y = 0;
 	src.dst_w = 0;
