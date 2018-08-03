@@ -24,8 +24,6 @@
 	} while (0)
 #endif
 
-extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
-
 #define CEILING(x, y)			(((x) + (y) - 1) / (y))
 
 #define UVC_DRIVER_NAME			"VITAUVC00"
@@ -684,11 +682,12 @@ static int send_frame(void)
 	int ret;
 	SceDisplayFrameBufInfo fb_info;
 	int head = ksceDisplayGetPrimaryHead();
-	int fb_index = !ksceAppMgrIsExclusiveProcessRunning(NULL);
 
 	memset(&fb_info, 0, sizeof(fb_info));
 	fb_info.size = sizeof(fb_info);
-	ret = ksceDisplayGetFrameBufInfoForPid(-1, head, fb_index, &fb_info);
+	ret = ksceDisplayGetFrameBufInfoForPid(-1, head, 0, &fb_info);
+	if (ret < 0)
+		ret = ksceDisplayGetFrameBufInfoForPid(-1, head, 1, &fb_info);
 	if (ret < 0)
 		return ret;
 
