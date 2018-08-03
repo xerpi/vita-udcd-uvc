@@ -672,7 +672,6 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	ret = uvc_video_frame_transfer(fid, nv12_frame, (width * height * 3) / 2);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
-		stream = 0;
 		return ret;
 	}
 
@@ -705,8 +704,10 @@ static int send_frame(void)
 		break;
 	}
 
-	if (ret < 0)
+	if (ret < 0) {
+		stream = 0;
 		return ret;
+	}
 
 	fid ^= 1;
 
