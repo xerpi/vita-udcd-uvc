@@ -31,8 +31,8 @@ extern int ksceAppMgrIsExclusiveProcessRunning(const char *name);
 #define UVC_DRIVER_NAME			"VITAUVC00"
 #define UVC_USB_PID			0x1337
 
-#define MAX_PACKET_SIZE			0x200
-#define MAX_PAYLOAD_TRANSFER_SIZE	0x4000
+#define MAX_PACKET_SIZE			0x4000
+#define MAX_PAYLOAD_TRANSFER_SIZE	0x80000
 #define MAX_PAYLOAD_TRANSFER_PACKETS	CEILING(MAX_PAYLOAD_TRANSFER_SIZE, MAX_PACKET_SIZE)
 
 #define VIDEO_FRAME_WIDTH		960
@@ -239,9 +239,8 @@ static int req_list_submit(void)
 	if (ret < 0)
 		return ret;
 
-	ret = ksceKernelWaitEventFlag(req_list_evflag, 1,
-				      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
-				      &out_bits, NULL);
+	ret = ksceKernelWaitEventFlagCB(req_list_evflag, 1, SCE_EVENT_WAITOR |
+					SCE_EVENT_WAITCLEAR_PAT, &out_bits, NULL);
 	return ret;
 }
 
@@ -717,7 +716,7 @@ static int display_vblank_cb_func(int notifyId, int notifyCount, int notifyArg, 
 	/*LOG("VBlank: %d, %d, %d, %p\n", notifyId, notifyCount, notifyArg, common);*/
 
 	if (stream)
-		return send_frame();
+		ksceKernelSetEventFlag(uvc_event_flag_id, 1);
 
 	return 0;
 }
@@ -740,6 +739,9 @@ static int uvc_thread(SceSize args, void *argp)
 		ksceKernelWaitEventFlagCB(uvc_event_flag_id, 1,
 			      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
 			      &out_bits, NULL);
+
+		if (stream)
+			send_frame();
 	}
 
 	ksceDisplayUnregisterVblankStartCallback(display_vblank_cb_uid);
