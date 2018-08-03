@@ -137,17 +137,11 @@ static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 static int req_list_init(void)
 {
 	int ret;
-	SceKernelAllocMemBlockKernelOpt opt;
-
-	memset(&opt, 0, sizeof(opt));
-	opt.size = sizeof(opt);
-	opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_ALIGNMENT;
-	opt.alignment = 4 * 1024;
 
 	req_list_memblock = ksceKernelAllocMemBlock("req_list_memblock",
 		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
 		ALIGN(sizeof(SceUdcdDeviceRequest) * MAX_PAYLOAD_TRANSFER_PACKETS, 4 * 1024),
-		&opt);
+		NULL);
 	if (req_list_memblock < 0)
 		return req_list_memblock;
 
@@ -228,12 +222,12 @@ static int req_list_submit(void)
 	int ret;
 	unsigned int out_bits;
 	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)req_list_addr;
-	SceUdcdDeviceRequest *cur_req = &reqs[req_list_size - 1];
+	SceUdcdDeviceRequest *last_req = &reqs[req_list_size - 1];
 
 	if (req_list_size == 0)
 		return 0;
 
-	cur_req->onComplete = req_list_submit_on_complete;
+	last_req->onComplete = req_list_submit_on_complete;
 
 	ret = ksceUdcdReqSend(reqs);
 	if (ret < 0)
