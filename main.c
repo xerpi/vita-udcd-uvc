@@ -235,8 +235,6 @@ static int req_list_submit(void)
 
 	cur_req->onComplete = req_list_submit_on_complete;
 
-	ksceKernelCpuDcacheAndL2WritebackRange(reqs, sizeof(*reqs) * req_list_size);
-
 	ret = ksceUdcdReqSend(reqs);
 	if (ret < 0)
 		return ret;
