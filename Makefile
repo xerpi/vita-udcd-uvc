@@ -1,16 +1,16 @@
 TARGET	= udcd_uvc
 OBJS	= main.o
+LIBS	= -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub \
+	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub \
+	-lSceDisplayForDriver_stub -lSceIftuForDriver_stub \
+	-ltaihenForKernel_stub
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
 	OBJS	+= log.o draw.o font_data.o
 	CFLAGS	+= -DDEBUG
+	LIBS	+= -lSceIofilemgrForDriver_stub
 endif
-
-LIBS	= -lSceSysclibForDriver_stub -lSceSysmemForDriver_stub \
-	-lSceSysmemForKernel_stub -lSceThreadmgrForDriver_stub -lSceCpuForKernel_stub \
-	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub -lSceDisplayForDriver_stub \
-	-lSceIofilemgrForDriver_stub -lSceIftuForDriver_stub -ltaihenForKernel_stub
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
