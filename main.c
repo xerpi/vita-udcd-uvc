@@ -584,6 +584,28 @@ static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned
 int uvc_start(void);
 int uvc_stop(void);
 
+static inline unsigned int display_to_iftu_pixelformat(unsigned int fmt)
+{
+	switch (fmt) {
+	case SCE_DISPLAY_PIXELFORMAT_A8B8G8R8:
+	default:
+		return SCE_IFTU_PIXELFORMAT_BGRX8888;
+	case 0x50000000:
+		return SCE_IFTU_PIXELFORMAT_BGRA5551;
+	}
+}
+
+static inline unsigned int display_pixelformat_bpp(unsigned int fmt)
+{
+	switch (fmt) {
+	case SCE_DISPLAY_PIXELFORMAT_A8B8G8R8:
+	default:
+		return 4;
+	case 0x50000000:
+		return 2;
+	}
+}
+
 static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *fb_info)
 {
 	int ret;
@@ -594,6 +616,7 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	unsigned int src_width_aligned = ALIGN(src_width, 16);
 	unsigned int src_pitch = fb_info->framebuf.pitch;
 	unsigned int src_height = fb_info->framebuf.height;
+	unsigned int src_pixelfmt = fb_info->framebuf.pixelformat;
 	unsigned int dst_width = VIDEO_FRAME_WIDTH;
 	unsigned int dst_height = VIDEO_FRAME_HEIGHT;
 	unsigned char *nv12_frame = csc_dest_buffer_addr;
@@ -627,10 +650,11 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 
 	SceIftuPlaneState src;
 	memset(&src, 0, sizeof(src));
-	src.fb.pixelformat = SCE_IFTU_PIXELFORMAT_BGRX8888;
+	src.fb.pixelformat = display_to_iftu_pixelformat(src_pixelfmt);
 	src.fb.width = src_width_aligned;
 	src.fb.height = src_height;
-	src.fb.leftover_stride = (src_pitch - src_width_aligned) * 4;
+	src.fb.leftover_stride = (src_pitch - src_width_aligned) *
+				 display_pixelformat_bpp(src_pixelfmt);
 	src.fb.leftover_align = 0;
 	src.fb.paddr0 = src_paddr;
 	src.unk20 = 0;
@@ -669,8 +693,7 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 
 	time3 = ksceKernelGetSystemTimeWide();
 
-	LOG("NV12: CSC: %lldms, Transfer: %lldms\n", (time2 - time1) / 1000,
-		(time3 - time2) / 1000);
+	LOG("NV12 CSC: %lldus xfer: %lldus\n", time2 - time1, time3 - time2);
 
 	return 0;
 }
@@ -804,7 +827,10 @@ int uvc_start(void)
 	SceKernelAllocMemBlockKernelOpt opt;
 
 #ifndef DEBUG
-	ksceKernelDelayThread(5 * 1000 * 1000);
+	/*
+	 * Wait until LiveArea is more or less ready.
+	 */
+	ksceKernelDelayThreadCB(5 * 1000 * 1000);
 #endif
 
 	ret = ksceUdcdDeactivate();
