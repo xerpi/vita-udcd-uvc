@@ -24,8 +24,6 @@
 #define LOG(...) (void)0
 #endif
 
-#define CEILING(x, y)			(((x) + (y) - 1) / (y))
-
 #define UVC_DRIVER_NAME			"VITAUVC00"
 #define UVC_USB_PID			0x1337
 
