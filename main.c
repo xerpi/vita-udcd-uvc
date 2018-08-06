@@ -77,11 +77,7 @@ static int stream;
 
 static SceUID uvc_frame_buffer_uid;
 static struct uvc_frame *uvc_frame_buffer_addr;
-
-static SceUID req_list_memblock;
-static void *req_list_addr;
-SceUID req_list_evflag;
-static unsigned int req_list_size;
+SceUID uvc_frame_req_evflag;
 
 static int usb_ep0_req_send(const void *data, unsigned int size)
 {
@@ -134,69 +130,44 @@ static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 	return ksceUdcdReqRecv(&req);
 }
 
-static int req_list_init(void)
+static int uvc_frame_req_init(void)
 {
-	int ret;
-
-	req_list_memblock = ksceKernelAllocMemBlock("req_list_memblock",
-		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
-		ALIGN(sizeof(SceUdcdDeviceRequest) * MAX_PAYLOAD_TRANSFER_PACKETS, 4 * 1024),
-		NULL);
-	if (req_list_memblock < 0)
-		return req_list_memblock;
-
-	ret = ksceKernelGetMemBlockBase(req_list_memblock, &req_list_addr);
-	if (ret < 0) {
-		ksceKernelFreeMemBlock(req_list_memblock);
-		return ret;
+	uvc_frame_req_evflag = ksceKernelCreateEventFlag("uvc_frame_req_evflag", 0, 0, NULL);
+	if (uvc_frame_req_evflag < 0) {
+		return uvc_frame_req_evflag;
 	}
-
-	req_list_evflag = ksceKernelCreateEventFlag("req_list_evflag", 0, 0, NULL);
-	if (req_list_evflag < 0) {
-		ksceKernelFreeMemBlock(req_list_memblock);
-		return req_list_evflag;
-	}
-
-	req_list_size = 0;
 
 	return 0;
 }
 
-static int req_list_fini(void)
+static int uvc_frame_req_fini(void)
 {
 	int ret;
 
-	ret = ksceKernelFreeMemBlock(req_list_memblock);
-	if (ret < 0)
-		return ret;
-
-	ret = ksceKernelDeleteEventFlag(req_list_evflag);
+	ret = ksceKernelDeleteEventFlag(uvc_frame_req_evflag);
 	if (ret < 0)
 		return ret;
 
 	return 0;
 }
 
-static void req_list_reset(void)
+static void uvc_frame_req_submit_on_complete(SceUdcdDeviceRequest *req)
 {
-	req_list_size = 0;
+	ksceKernelSetEventFlag(uvc_frame_req_evflag, 1);
 }
 
-static int req_list_enqueue(const void *data, unsigned int size)
+static int uvc_frame_req_submit(const void *data, unsigned int size)
 {
-	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)req_list_addr;
-	SceUdcdDeviceRequest *new_req = &reqs[req_list_size];
+	static SceUdcdDeviceRequest req;
+	int ret;
 
-	if (req_list_size >= MAX_PAYLOAD_TRANSFER_PACKETS)
-		return -1;
-
-	*new_req = (SceUdcdDeviceRequest){
+	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[3],
 		.data = (void *)data,
 		.unk = 0,
 		.size = size,
 		.isControlRequest = 0,
-		.onComplete = NULL,
+		.onComplete = uvc_frame_req_submit_on_complete,
 		.transmitted = 0,
 		.returnCode = 0,
 		.next = NULL,
@@ -204,37 +175,13 @@ static int req_list_enqueue(const void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
-	if (req_list_size > 0)
-		reqs[req_list_size - 1].next = new_req;
-
-	req_list_size++;
-
-	return 0;
-}
-
-static void req_list_submit_on_complete(SceUdcdDeviceRequest *req)
-{
-	ksceKernelSetEventFlag(req_list_evflag, 1);
-}
-
-static int req_list_submit(void)
-{
-	int ret;
-	unsigned int out_bits;
-	SceUdcdDeviceRequest *reqs = (SceUdcdDeviceRequest *)req_list_addr;
-	SceUdcdDeviceRequest *last_req = &reqs[req_list_size - 1];
-
-	if (req_list_size == 0)
-		return 0;
-
-	last_req->onComplete = req_list_submit_on_complete;
-
-	ret = ksceUdcdReqSend(reqs);
+	ret = ksceUdcdReqSend(&req);
 	if (ret < 0)
 		return ret;
 
-	ret = ksceKernelWaitEventFlagCB(req_list_evflag, 1, SCE_EVENT_WAITOR |
-					SCE_EVENT_WAITCLEAR_PAT, &out_bits, NULL);
+	ret = ksceKernelWaitEventFlagCB(uvc_frame_req_evflag, 1, SCE_EVENT_WAITOR |
+					SCE_EVENT_WAITCLEAR_PAT, NULL, NULL);
+
 	return ret;
 }
 
@@ -504,15 +451,13 @@ static unsigned int uvc_frame_transfer(struct uvc_frame *frame,
 	if (eof)
 		frame->header[1] |= UVC_STREAM_EOF;
 
-	req_list_reset();
-
-	ret = req_list_enqueue(uvc_frame_buffer_addr, frame_size);
+	ret = uvc_frame_req_submit(uvc_frame_buffer_addr, frame_size);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
 	}
 
-	return req_list_submit();
+	return 0;
 }
 
 int uvc_start(void);
@@ -803,10 +748,10 @@ int uvc_start(void)
 		goto err_uvc_frame_init;
 	}
 
-	ret = req_list_init();
+	ret = uvc_frame_req_init();
 	if (ret < 0) {
-		LOG("Error allocating USB request list (0x%08X)\n", ret);
-		goto err_alloc_req_list;
+		LOG("Error allocating USB request (0x%08X)\n", ret);
+		goto err_alloc_uvc_frame_req;
 	}
 
 	/*
@@ -817,7 +762,7 @@ int uvc_start(void)
 
 	return 0;
 
-err_alloc_req_list:
+err_alloc_uvc_frame_req:
 	uvc_frame_term();
 err_uvc_frame_init:
 	ksceUdcdDeactivate();
@@ -944,7 +889,7 @@ int module_stop(SceSize argc, const void *args)
 	ksceKernelDeleteEventFlag(uvc_event_flag_id);
 	ksceKernelDeleteThread(uvc_thread_id);
 
-	req_list_fini();
+	uvc_frame_req_fini();
 
 	ksceUdcdDeactivate();
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
