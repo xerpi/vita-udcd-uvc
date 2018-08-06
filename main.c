@@ -701,6 +701,11 @@ int uvc_start(void)
 {
 	int ret;
 
+	/*
+	 * Wait until there's a framebuffer set.
+	 */
+	ksceDisplayWaitSetFrameBufCB();
+
 #ifndef DEBUG
 	/*
 	 * Wait until LiveArea is more or less ready.
