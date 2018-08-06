@@ -36,9 +36,6 @@
 #define UVC_PAYLOAD_HEADER_SIZE		2
 #define UVC_FRAME_SIZE			(UVC_PAYLOAD_HEADER_SIZE + VIDEO_FRAME_SIZE_NV12)
 
-/* TODO: Remove */
-#define MAX_PAYLOAD_TRANSFER_PACKETS	1
-
 struct uvc_frame {
 	unsigned char header[UVC_PAYLOAD_HEADER_SIZE];
 	unsigned char data[];
