@@ -9,7 +9,7 @@ DEBUG ?= 0
 ifeq ($(DEBUG), 1)
 	OBJS	+= log.o draw.o font_data.o
 	CFLAGS	+= -DDEBUG
-	LIBS	+= -lSceIofilemgrForDriver_stub
+	LIBS	+= -lSceSysclibForDriver_stub -lSceIofilemgrForDriver_stub
 endif
 
 PREFIX	= arm-vita-eabi
