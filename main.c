@@ -29,15 +29,20 @@
 #define UVC_DRIVER_NAME			"VITAUVC00"
 #define UVC_USB_PID			0x1337
 
-#define MAX_PACKET_SIZE			0x4000
-#define MAX_PAYLOAD_TRANSFER_SIZE	0x80000
-#define MAX_PAYLOAD_TRANSFER_PACKETS	CEILING(MAX_PAYLOAD_TRANSFER_SIZE, MAX_PACKET_SIZE)
-
 #define VIDEO_FRAME_WIDTH		960
 #define VIDEO_FRAME_HEIGHT		544
 #define VIDEO_FRAME_SIZE_NV12		((VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3) / 2)
 
-#define PAYLOAD_HEADER_SIZE		2
+#define UVC_PAYLOAD_HEADER_SIZE		2
+#define UVC_FRAME_SIZE			(UVC_PAYLOAD_HEADER_SIZE + VIDEO_FRAME_SIZE_NV12)
+
+/* TODO: Remove */
+#define MAX_PAYLOAD_TRANSFER_PACKETS	1
+
+struct uvc_frame {
+	unsigned char header[UVC_PAYLOAD_HEADER_SIZE];
+	unsigned char data[];
+} __attribute__((packed));
 
 static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.bmHint				= 0,
@@ -50,7 +55,7 @@ static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.wCompWindowSize		= 0,
 	.wDelay				= 0,
 	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE_NV12,
-	.dwMaxPayloadTransferSize	= MAX_PAYLOAD_TRANSFER_SIZE,
+	.dwMaxPayloadTransferSize	= UVC_FRAME_SIZE,
 	.dwClockFrequency		= 0,
 	.bmFramingInfo			= 0,
 	.bPreferedVersion		= 1,
@@ -70,11 +75,8 @@ static SceUID uvc_event_flag_id;
 static int uvc_thread_run;
 static int stream;
 
-static SceUID csc_dest_buffer_uid;
-static void *csc_dest_buffer_addr;
-
-static SceUID payload_first_packet_uid;
-static unsigned char *payload_first_packet_addr;
+static SceUID uvc_frame_buffer_uid;
+static struct uvc_frame *uvc_frame_buffer_addr;
 
 static SceUID req_list_memblock;
 static void *req_list_addr;
@@ -488,97 +490,29 @@ static SceUdcdDriver uvc_udcd_driver = {
 	.user_data			= NULL
 };
 
-static unsigned int uvc_payload_transfer(const unsigned char *data,
-					 unsigned int transfer_size,
-					 int fid, int eof,
-					 unsigned int *written)
+static unsigned int uvc_frame_transfer(struct uvc_frame *frame,
+				       unsigned int frame_size,
+				       int fid, int eof)
 {
 	int ret;
-	unsigned int pend_size = transfer_size;
-	unsigned int offset = 0;
-	unsigned int first_size;
 
-	unsigned char payload_header[PAYLOAD_HEADER_SIZE] = {
-		PAYLOAD_HEADER_SIZE,	/* Header Length */
-		UVC_STREAM_EOH		/* Bit field header field */
-	};
+	frame->header[0] = UVC_PAYLOAD_HEADER_SIZE;
+	frame->header[1] = UVC_STREAM_EOH;
 
 	if (fid)
-		payload_header[1] |= UVC_STREAM_FID;
+		frame->header[1] |= UVC_STREAM_FID;
 	if (eof)
-		payload_header[1] |= UVC_STREAM_EOF;
+		frame->header[1] |= UVC_STREAM_EOF;
 
 	req_list_reset();
 
-	if (transfer_size > MAX_PACKET_SIZE)
-		first_size = MAX_PACKET_SIZE;
-	else
-		first_size = transfer_size;
-
-	/*
-	 * The first packet of the transfer includes the payload header.
-	 */
-	memcpy(&payload_first_packet_addr[0], payload_header, PAYLOAD_HEADER_SIZE);
-	memcpy(&payload_first_packet_addr[PAYLOAD_HEADER_SIZE], &data[offset],
-	       first_size - PAYLOAD_HEADER_SIZE);
-	ksceKernelCpuDcacheAndL2WritebackRange(payload_first_packet_addr, first_size);
-	ret = req_list_enqueue(payload_first_packet_addr, first_size);
-	if (ret < 0)
+	ret = req_list_enqueue(uvc_frame_buffer_addr, frame_size);
+	if (ret < 0) {
+		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
-
-	pend_size -= first_size;
-	offset += first_size - PAYLOAD_HEADER_SIZE;
-
-	while (pend_size > 0) {
-		unsigned int send_size = MAX_PACKET_SIZE;
-		if (pend_size < MAX_PACKET_SIZE)
-			send_size = pend_size;
-
-		ret = req_list_enqueue(&data[offset], send_size);
-		if (ret < 0)
-			return ret;
-
-		pend_size -= send_size;
-		offset += send_size;
 	}
-
-	if (written)
-		*written = offset;
 
 	return req_list_submit();
-}
-
-static int uvc_video_frame_transfer(int fid, const unsigned char *data, unsigned int size)
-{
-	int ret;
-	unsigned int written;
-	unsigned int offset = 0;
-	unsigned int pend_size = size;
-
-	/*
-	 * Send all the transfers but the last one.
-	 */
-	while (pend_size + PAYLOAD_HEADER_SIZE > MAX_PAYLOAD_TRANSFER_SIZE) {
-		ret = uvc_payload_transfer(&data[offset],
-					   MAX_PAYLOAD_TRANSFER_SIZE,
-					   fid, 0, &written);
-		if (ret < 0)
-			return ret;
-
-		pend_size -= written;
-		offset += written;
-	}
-
-	/*
-	 * Last transfer of the frame has End of Frame (EOF) = 1.
-	 */
-	ret = uvc_payload_transfer(&data[offset],
-				   pend_size + PAYLOAD_HEADER_SIZE,
-				   fid, 1, &written);
-	if (ret < 0)
-		return ret;
-
-	return 0;
 }
 
 int uvc_start(void);
@@ -619,7 +553,7 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	unsigned int src_pixelfmt = fb_info->framebuf.pixelformat;
 	unsigned int dst_width = VIDEO_FRAME_WIDTH;
 	unsigned int dst_height = VIDEO_FRAME_HEIGHT;
-	unsigned char *nv12_frame = csc_dest_buffer_addr;
+	unsigned char *uvc_frame_data = uvc_frame_buffer_addr->data;
 
 	time1 = ksceKernelGetSystemTimeWide();
 
@@ -633,7 +567,7 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 		}
 	};
 
-	ksceKernelGetPaddr(nv12_frame, &dst_paddr);
+	ksceKernelGetPaddr(uvc_frame_data, &dst_paddr);
 
 	SceIftuConvParams params;
 	memset(&params, 0, sizeof(params));
@@ -685,7 +619,9 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 
 	time2 = ksceKernelGetSystemTimeWide();
 
-	ret = uvc_video_frame_transfer(fid, nv12_frame, VIDEO_FRAME_SIZE_NV12);
+	ret = uvc_frame_transfer(uvc_frame_buffer_addr,
+				 UVC_PAYLOAD_HEADER_SIZE + VIDEO_FRAME_SIZE_NV12,
+				 fid, 1);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
@@ -771,7 +707,7 @@ static int uvc_thread(SceSize args, void *argp)
 	return 0;
 }
 
-static int csc_dest_init(unsigned int size)
+static int uvc_frame_init(unsigned int size)
 {
 	int ret;
 
@@ -795,27 +731,27 @@ static int csc_dest_init(unsigned int size)
 		optp = &opt;
 	}
 
-	csc_dest_buffer_uid = ksceKernelAllocMemBlock("uvc_csc_dest_buffer", type, size, optp);
-	if (csc_dest_buffer_uid < 0) {
-		LOG("Error allocating CSC dest memory: 0x%08X\n", csc_dest_buffer_uid);
-		return csc_dest_buffer_uid;
+	uvc_frame_buffer_uid = ksceKernelAllocMemBlock("uvc_frame_buffer", type, size, optp);
+	if (uvc_frame_buffer_uid < 0) {
+		LOG("Error allocating CSC dest memory: 0x%08X\n", uvc_frame_buffer_uid);
+		return uvc_frame_buffer_uid;
 	}
 
-	ret = ksceKernelGetMemBlockBase(csc_dest_buffer_uid, &csc_dest_buffer_addr);
+	ret = ksceKernelGetMemBlockBase(uvc_frame_buffer_uid, (void **)&uvc_frame_buffer_addr);
 	if (ret < 0) {
 		LOG("Error getting CSC desr memory addr: 0x%08X\n", ret);
-		ksceKernelFreeMemBlock(csc_dest_buffer_uid);
+		ksceKernelFreeMemBlock(uvc_frame_buffer_uid);
 		return ret;
 	}
 
 	return 0;
 }
 
-static int csc_dest_term()
+static int uvc_frame_term()
 {
-	if (csc_dest_buffer_uid >= 0) {
-		ksceKernelFreeMemBlock(csc_dest_buffer_uid);
-		csc_dest_buffer_uid = -1;
+	if (uvc_frame_buffer_uid >= 0) {
+		ksceKernelFreeMemBlock(uvc_frame_buffer_uid);
+		uvc_frame_buffer_uid = -1;
 	}
 
 	return 0;
@@ -824,7 +760,6 @@ static int csc_dest_term()
 int uvc_start(void)
 {
 	int ret;
-	SceKernelAllocMemBlockKernelOpt opt;
 
 #ifndef DEBUG
 	/*
@@ -862,35 +797,10 @@ int uvc_start(void)
 		goto err_activate;
 	}
 
-	ret = csc_dest_init(VIDEO_FRAME_SIZE_NV12);
+	ret = uvc_frame_init(UVC_FRAME_SIZE);
 	if (ret < 0) {
-		LOG("Error allocating the CSC dest memory (0x%08X)\n", ret);
-		goto err_csc_dest_init;
-	}
-
-	/*
-	 * Allocate a physically contiguous buffer for the first
-	 * UVC Payload Transfer packet.
-	 */
-	memset(&opt, 0, sizeof(opt));
-	opt.size = sizeof(opt);
-	opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_PHYCONT;
-
-	ret = ksceKernelAllocMemBlock("uvc_first_packet",
-		SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_RW,
-		ALIGN(MAX_PACKET_SIZE, 4 * 1024), &opt);
-	if (ret < 0) {
-		LOG("Error allocating memory for the first packet (0x%08X)\n", ret);
-		goto err_first_pkt_alloc;
-	}
-
-	payload_first_packet_uid = ret;
-
-	ret = ksceKernelGetMemBlockBase(payload_first_packet_uid,
-					(void **)&payload_first_packet_addr);
-	if (ret < 0) {
-		LOG("Error allocating memory for the first packet (0x%08X)\n", ret);
-		goto err_first_pkt_alloc;
+		LOG("Error allocating the UVC frame (0x%08X)\n", ret);
+		goto err_uvc_frame_init;
 	}
 
 	ret = req_list_init();
@@ -908,10 +818,8 @@ int uvc_start(void)
 	return 0;
 
 err_alloc_req_list:
-	ksceKernelFreeMemBlock(payload_first_packet_uid);
-err_first_pkt_alloc:
-	csc_dest_term();
-err_csc_dest_init:
+	uvc_frame_term();
+err_uvc_frame_init:
 	ksceUdcdDeactivate();
 err_activate:
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
@@ -929,9 +837,7 @@ int uvc_stop(void)
 	ksceUdcdStart("USB_MTP_Driver", 0, NULL);
 	ksceUdcdActivate(0x4E4);
 
-	csc_dest_term();
-
-	ksceKernelFreeMemBlock(payload_first_packet_uid);
+	uvc_frame_term();
 
 	return 0;
 }
