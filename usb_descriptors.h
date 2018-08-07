@@ -342,7 +342,7 @@ struct SceUdcdEndpointDescriptor endpdesc_full[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		USB_ENDPOINT_IN | 0x01,		/* bEndpointAddress */
+		USB_ENDPOINT_IN | 0x02,		/* bEndpointAddress */
 		USB_ENDPOINT_TYPE_INTERRUPT,	/* bmAttributes */
 		0x40,				/* wMaxPacketSize */
 		0x01				/* bInterval */
@@ -351,7 +351,7 @@ struct SceUdcdEndpointDescriptor endpdesc_full[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		USB_ENDPOINT_IN | 0x01,		/* bEndpointAddress */
+		USB_ENDPOINT_IN | 0x03,		/* bEndpointAddress */
 		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
 		0x40,				/* wMaxPacketSize */
 		0x00				/* bInterval */
