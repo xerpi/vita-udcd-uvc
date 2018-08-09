@@ -81,7 +81,7 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
 		.data = (void *)data,
-		.unk = 0,
+		.attributes = 0,
 		.size = size,
 		.isControlRequest = 0,
 		.onComplete = NULL,
@@ -108,7 +108,7 @@ static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[0],
 		.data = (void *)pending_recv.buffer,
-		.unk = 0,
+		.attributes = 0,
 		.size = pending_recv.ep0_req.wLength,
 		.isControlRequest = 0,
 		.onComplete = &usb_ep0_req_recv_on_complete,
@@ -146,12 +146,12 @@ static int uvc_frame_req_fini(void)
 	return 0;
 }
 
-static void uvc_frame_req_submit_on_complete(SceUdcdDeviceRequest *req)
+static void uvc_frame_req_submit_phycont_on_complete(SceUdcdDeviceRequest *req)
 {
 	ksceKernelSetEventFlag(uvc_frame_req_evflag, 1);
 }
 
-static int uvc_frame_req_submit(const void *data, unsigned int size)
+static int uvc_frame_req_submit_phycont(const void *data, unsigned int size)
 {
 	static SceUdcdDeviceRequest req;
 	int ret;
@@ -159,10 +159,10 @@ static int uvc_frame_req_submit(const void *data, unsigned int size)
 	req = (SceUdcdDeviceRequest){
 		.endpoint = &endpoints[3],
 		.data = (void *)data,
-		.unk = 0,
+		.attributes = SCE_UDCD_DEVICE_REQUEST_ATTR_PHYCONT,
 		.size = size,
 		.isControlRequest = 0,
-		.onComplete = uvc_frame_req_submit_on_complete,
+		.onComplete = uvc_frame_req_submit_phycont_on_complete,
 		.transmitted = 0,
 		.returnCode = 0,
 		.next = NULL,
@@ -450,7 +450,7 @@ static unsigned int uvc_frame_transfer(struct uvc_frame *frame,
 	if (eof)
 		frame->header[1] |= UVC_STREAM_EOF;
 
-	ret = uvc_frame_req_submit(frame, frame_size);
+	ret = uvc_frame_req_submit_phycont(frame, frame_size);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
