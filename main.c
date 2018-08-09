@@ -450,7 +450,7 @@ static unsigned int uvc_frame_transfer(struct uvc_frame *frame,
 	if (eof)
 		frame->header[1] |= UVC_STREAM_EOF;
 
-	ret = uvc_frame_req_submit(uvc_frame_buffer_addr, frame_size);
+	ret = uvc_frame_req_submit(frame, frame_size);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
