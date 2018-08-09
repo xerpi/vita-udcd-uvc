@@ -9,6 +9,7 @@
 
 void log_reset();
 void log_write(const char *buffer, size_t length);
+void log_flush();
 
 #ifdef DEBUG
 #  define LOG_TO_FILE(...) \

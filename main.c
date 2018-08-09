@@ -241,7 +241,7 @@ static void uvc_handle_output_terminal_req(const SceUdcdEP0DeviceRequest *req)
 
 static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 {
-	/*LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest);*/
+	LOG("  uvc_handle_video_streaming_req %x, %x\n", req->wValue, req->bRequest);
 
 	switch (req->wValue >> 8) {
 	case UVC_VS_PROBE_CONTROL:
@@ -287,6 +287,8 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 
 static void uvc_handle_video_abort(void)
 {
+	LOG("uvc_handle_video_abort\n");
+
 	if (stream) {
 		stream = 0;
 
@@ -297,6 +299,8 @@ static void uvc_handle_video_abort(void)
 
 static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
 {
+	LOG("uvc_handle_clear_feature\n");
+
 	switch (req->wValue) {
 	case USB_FEATURE_ENDPOINT_HALT:
 		if ((req->wIndex & USB_ENDPOINT_ADDRESS_MASK) ==
@@ -311,9 +315,9 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 {
 	int ret = 0;
 
-	/*LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
+	LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
 	LOG("  request: %x type: %x wValue: %x wIndex: %x wLength: %x\n",
-		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);*/
+		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);
 
 	if (arg < 0)
 		ret = -1;
@@ -903,6 +907,7 @@ int module_stop(SceSize argc, const void *args)
 
 #ifdef DEBUG
 	unmap_framebuffer();
+	log_flush();
 #endif
 
 	return SCE_KERNEL_STOP_SUCCESS;
