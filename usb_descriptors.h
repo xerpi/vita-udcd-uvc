@@ -44,7 +44,6 @@ unsigned char interface_association_descriptor[] = {
 };
 
 DECLARE_UVC_HEADER_DESCRIPTOR(1);
-DECLARE_UVC_EXTENSION_UNIT_DESCRIPTOR(1, 3);
 
 static struct __attribute__((packed)) {
 	struct UVC_HEADER_DESCRIPTOR(1) header_descriptor;
@@ -91,11 +90,11 @@ unsigned char video_control_specific_endpoint_descriptors[] = {
 	0x40,0x00,                      /* Max packet size = 64 bytes */
 };
 
-DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 3);
+DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 1);
 DECLARE_UVC_FRAME_UNCOMPRESSED(1);
 
 static struct __attribute__((packed)) {
-	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 3) input_header_descriptor;
+	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_uncompressed format_uncompressed_nv12;
 	struct UVC_FRAME_UNCOMPRESSED(1) frame_uncompressed_nv12;
 	struct uvc_color_matching_descriptor format_uncompressed_nv12_color_matching;
@@ -104,16 +103,16 @@ static struct __attribute__((packed)) {
 		.bLength			= sizeof(video_streaming_descriptors.input_header_descriptor),
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_INPUT_HEADER,
-		.bNumFormats			= 3,
+		.bNumFormats			= 1,
 		.wTotalLength			= sizeof(video_streaming_descriptors),
 		.bEndpointAddress		= 0x83,
 		.bmInfo				= 0,
 		.bTerminalLink			= OUTPUT_TERMINAL_ID,
-		.bStillCaptureMethod		= 1,
+		.bStillCaptureMethod		= 0,
 		.bTriggerSupport		= 0,
 		.bTriggerUsage			= 0,
 		.bControlSize			= 1,
-		.bmaControls			= {{0}, {0}, {0}, },
+		.bmaControls			= {{0}, },
 	},
 	.format_uncompressed_nv12 = {
 		.bLength			= sizeof(video_streaming_descriptors.format_uncompressed_nv12),
