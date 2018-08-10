@@ -156,9 +156,8 @@ static struct __attribute__((packed)) {
 static
 struct SceUdcdEndpoint endpoints[4] = {
 	{USB_ENDPOINT_OUT, 0, 0, 0},
-	{USB_ENDPOINT_OUT, 1, 0, 0},
-	{USB_ENDPOINT_IN, 2, 0, 0},
-	{USB_ENDPOINT_IN, 3, 0, 0}
+	{USB_ENDPOINT_IN, 1, 0, 0},
+	{USB_ENDPOINT_IN, 2, 0, 0}
 };
 
 /* Interfaces */
@@ -203,20 +202,12 @@ struct SceUdcdDeviceDescriptor devdesc_hi = {
 
 /* Hi-Speed endpoint descriptors */
 static
-struct SceUdcdEndpointDescriptor endpdesc_hi[4] = {
+struct SceUdcdEndpointDescriptor endpdesc_hi[3] = {
 	/* Video Control endpoints */
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		USB_ENDPOINT_OUT | 0x01,	/* bEndpointAddress */
-		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
-		0x200,				/* wMaxPacketSize */
-		0x00				/* bInterval */
-	},
-	{
-		USB_DT_ENDPOINT_SIZE,
-		USB_DT_ENDPOINT,
-		USB_ENDPOINT_IN | 0x02,		/* bEndpointAddress */
+		USB_ENDPOINT_IN | 0x01,		/* bEndpointAddress */
 		USB_ENDPOINT_TYPE_INTERRUPT,	/* bmAttributes */
 		0x40,				/* wMaxPacketSize */
 		0x01,				/* bInterval */
@@ -227,7 +218,7 @@ struct SceUdcdEndpointDescriptor endpdesc_hi[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		USB_ENDPOINT_IN | 0x03,		/* bEndpointAddress */
+		USB_ENDPOINT_IN | 0x02,		/* bEndpointAddress */
 		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
 		0x200,				/* wMaxPacketSize */
 		0x00				/* bInterval */
@@ -245,7 +236,7 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 		USB_DT_INTERFACE,
 		CONTROL_INTERFACE,		/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
-		2,				/* bNumEndpoints */
+		1,				/* bNumEndpoints */
 		USB_CLASS_VIDEO,		/* bInterfaceClass */
 		UVC_SC_VIDEOCONTROL,		/* bInterfaceSubClass */
 		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
@@ -264,7 +255,7 @@ struct SceUdcdInterfaceDescriptor interdesc_hi[3] = {
 		UVC_SC_VIDEOSTREAMING,		/* bInterfaceSubClass */
 		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
 		0,				/* iInterface */
-		&endpdesc_hi[2],		/* endpoints */
+		&endpdesc_hi[1],		/* endpoints */
 		(void *)&video_streaming_descriptors,
 		sizeof(video_streaming_descriptors)
 	},
@@ -285,7 +276,7 @@ static
 struct SceUdcdConfigDescriptor confdesc_hi = {
 	USB_DT_CONFIG_SIZE,
 	USB_DT_CONFIG,
-	(USB_DT_CONFIG_SIZE + 2 * USB_DT_INTERFACE_SIZE + 3 * USB_DT_ENDPOINT_SIZE +
+	(USB_DT_CONFIG_SIZE + 2 * USB_DT_INTERFACE_SIZE + 2 * USB_DT_ENDPOINT_SIZE +
 		/* sizeof(interface_association_descriptor) + */
 		sizeof(video_control_descriptors) +
 		sizeof(video_control_specific_interrupt_endpoint_descriptor) +
@@ -335,15 +326,7 @@ struct SceUdcdEndpointDescriptor endpdesc_full[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		USB_ENDPOINT_OUT | 0x01,	/* bEndpointAddress */
-		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
-		0x40,				/* wMaxPacketSize */
-		0x00				/* bInterval */
-	},
-	{
-		USB_DT_ENDPOINT_SIZE,
-		USB_DT_ENDPOINT,
-		USB_ENDPOINT_IN | 0x02,		/* bEndpointAddress */
+		USB_ENDPOINT_IN | 0x01,		/* bEndpointAddress */
 		USB_ENDPOINT_TYPE_INTERRUPT,	/* bmAttributes */
 		0x40,				/* wMaxPacketSize */
 		0x01,				/* bInterval */
@@ -354,7 +337,7 @@ struct SceUdcdEndpointDescriptor endpdesc_full[4] = {
 	{
 		USB_DT_ENDPOINT_SIZE,
 		USB_DT_ENDPOINT,
-		USB_ENDPOINT_IN | 0x03,		/* bEndpointAddress */
+		USB_ENDPOINT_IN | 0x02,		/* bEndpointAddress */
 		USB_ENDPOINT_TYPE_BULK,		/* bmAttributes */
 		0x40,				/* wMaxPacketSize */
 		0x00				/* bInterval */
@@ -372,7 +355,7 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 		USB_DT_INTERFACE,
 		0,				/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
-		2,				/* bNumEndpoints */
+		1,				/* bNumEndpoints */
 		USB_CLASS_VIDEO,		/* bInterfaceClass */
 		UVC_SC_VIDEOCONTROL,		/* bInterfaceSubClass */
 		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
@@ -391,7 +374,7 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 		UVC_SC_VIDEOSTREAMING,		/* bInterfaceSubClass */
 		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
 		1,				/* iInterface */
-		&endpdesc_full[2],		/* endpoints */
+		&endpdesc_full[1],		/* endpoints */
 		(void *)&video_streaming_descriptors,
 		sizeof(video_streaming_descriptors)
 	},
@@ -412,7 +395,7 @@ static
 struct SceUdcdConfigDescriptor confdesc_full = {
 	USB_DT_CONFIG_SIZE,
 	USB_DT_CONFIG,
-	(USB_DT_CONFIG_SIZE + 2 * USB_DT_INTERFACE_SIZE + 3 * USB_DT_ENDPOINT_SIZE +
+	(USB_DT_CONFIG_SIZE + 2 * USB_DT_INTERFACE_SIZE + 2 * USB_DT_ENDPOINT_SIZE +
 		/* sizeof(interface_association_descriptor) + */
 		sizeof(video_control_descriptors) +
 		sizeof(video_control_specific_interrupt_endpoint_descriptor) +

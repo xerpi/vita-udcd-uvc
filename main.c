@@ -157,7 +157,7 @@ static int uvc_frame_req_submit_phycont(const void *data, unsigned int size)
 	int ret;
 
 	req = (SceUdcdDeviceRequest){
-		.endpoint = &endpoints[3],
+		.endpoint = &endpoints[2],
 		.data = (void *)data,
 		.attributes = SCE_UDCD_DEVICE_REQUEST_ATTR_PHYCONT,
 		.size = size,
@@ -416,7 +416,7 @@ static int uvc_driver_stop(int size, void *p, void *user_data)
 
 static SceUdcdDriver uvc_udcd_driver = {
 	.driverName			= UVC_DRIVER_NAME,
-	.numEndpoints			= 4,
+	.numEndpoints			= 3,
 	.endpoints			= &endpoints[0],
 	.interface			= &interfaces[0],
 	.descriptor_hi			= &devdesc_hi,
