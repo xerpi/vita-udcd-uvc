@@ -292,8 +292,8 @@ static void uvc_handle_video_abort(void)
 	if (stream) {
 		stream = 0;
 
-		ksceUdcdReqCancelAll(&endpoints[3]);
-		ksceUdcdClearFIFO(&endpoints[3]);
+		ksceUdcdClearFIFO(&endpoints[2]);
+		ksceUdcdReqCancelAll(&endpoints[2]);
 	}
 }
 
@@ -304,7 +304,7 @@ static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
 	switch (req->wValue) {
 	case USB_FEATURE_ENDPOINT_HALT:
 		if ((req->wIndex & USB_ENDPOINT_ADDRESS_MASK) ==
-		    endpoints[3].endpointNumber) {
+		    endpoints[2].endpointNumber) {
 			uvc_handle_video_abort();
 		}
 		break;
@@ -382,8 +382,7 @@ static int uvc_udcd_attach(int usb_version, void *user_data)
 {
 	LOG("uvc_udcd_attach %d\n", usb_version);
 
-	// ksceUdcdReqCancelAll(&endpoints[1]);
-	// ksceUdcdClearFIFO(&endpoints[1]);
+	ksceUdcdClearFIFO(&endpoints[2]);
 
 	return 0;
 }
