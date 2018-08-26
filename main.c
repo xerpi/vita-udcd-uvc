@@ -27,12 +27,12 @@
 #define UVC_DRIVER_NAME			"VITAUVC00"
 #define UVC_USB_PID			0x1337
 
-#define VIDEO_FRAME_WIDTH		960
-#define VIDEO_FRAME_HEIGHT		544
-#define VIDEO_FRAME_SIZE_NV12		((VIDEO_FRAME_WIDTH * VIDEO_FRAME_HEIGHT * 3) / 2)
+#define VIDEO_FRAME_SIZE_NV12(w, h)	(((w) * (h) * 3) / 2)
+#define MAX_UVC_VIDEO_FRAME_SIZE	VIDEO_FRAME_SIZE_NV12(960, 544)
 
 #define UVC_PAYLOAD_HEADER_SIZE		16
-#define UVC_FRAME_SIZE			(UVC_PAYLOAD_HEADER_SIZE + VIDEO_FRAME_SIZE_NV12)
+#define UVC_PAYLOAD_SIZE(frame_size)	(UVC_PAYLOAD_HEADER_SIZE + (frame_size))
+#define MAX_UVC_PAYLOAD_TRANSFER_SIZE	UVC_PAYLOAD_SIZE(MAX_UVC_VIDEO_FRAME_SIZE)
 
 struct uvc_frame {
 	unsigned char header[UVC_PAYLOAD_HEADER_SIZE];
@@ -49,8 +49,8 @@ static const struct uvc_streaming_control uvc_probe_control_setting_default = {
 	.wCompQuality			= 0,
 	.wCompWindowSize		= 0,
 	.wDelay				= 0,
-	.dwMaxVideoFrameSize		= VIDEO_FRAME_SIZE_NV12,
-	.dwMaxPayloadTransferSize	= UVC_FRAME_SIZE,
+	.dwMaxVideoFrameSize		= MAX_UVC_VIDEO_FRAME_SIZE,
+	.dwMaxPayloadTransferSize	= MAX_UVC_PAYLOAD_TRANSFER_SIZE,
 	.dwClockFrequency		= 0,
 	.bmFramingInfo			= 0,
 	.bPreferedVersion		= 1,
@@ -483,7 +483,8 @@ static inline unsigned int display_pixelformat_bpp(unsigned int fmt)
 	}
 }
 
-static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *fb_info)
+static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
+					int dst_width, int dst_height)
 {
 	int ret;
 	uint64_t time1, time2, time3;
@@ -494,8 +495,6 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	unsigned int src_pitch = fb_info->framebuf.pitch;
 	unsigned int src_height = fb_info->framebuf.height;
 	unsigned int src_pixelfmt = fb_info->framebuf.pixelformat;
-	unsigned int dst_width = VIDEO_FRAME_WIDTH;
-	unsigned int dst_height = VIDEO_FRAME_HEIGHT;
 	unsigned char *uvc_frame_data = uvc_frame_buffer_addr->data;
 
 	time1 = ksceKernelGetSystemTimeWide();
@@ -537,8 +536,8 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	src.unk20 = 0;
 	src.src_x = 0;
 	src.src_y = 0;
-	src.src_w = (src_width * 0x10000) / 960;
-	src.src_h = (src_height * 0x10000) / 544;
+	src.src_w = (src_width * 0x10000) / dst_width;
+	src.src_h = (src_height * 0x10000) / dst_height;
 	src.dst_x = 0;
 	src.dst_y = 0;
 	src.dst_w = 0;
@@ -563,7 +562,7 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	time2 = ksceKernelGetSystemTimeWide();
 
 	ret = uvc_frame_transfer(uvc_frame_buffer_addr,
-				 UVC_PAYLOAD_HEADER_SIZE + VIDEO_FRAME_SIZE_NV12,
+				 UVC_PAYLOAD_SIZE(VIDEO_FRAME_SIZE_NV12(dst_width, dst_height)),
 				 fid, 1);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
@@ -594,9 +593,15 @@ static int send_frame(void)
 		return ret;
 
 	switch (uvc_probe_control_setting.bFormatIndex) {
-	case FORMAT_INDEX_UNCOMPRESSED_NV12:
-		ret = send_frame_uncompressed_nv12(fid, &fb_info);
+	case FORMAT_INDEX_UNCOMPRESSED_NV12: {
+		const struct UVC_FRAME_UNCOMPRESSED(1) *frames =
+			video_streaming_descriptors.frames_uncompressed_nv12;
+		int dst_width = frames[uvc_probe_control_setting.bFrameIndex - 1].wWidth;
+		int dst_height = frames[uvc_probe_control_setting.bFrameIndex - 1].wHeight;
+
+		ret = send_frame_uncompressed_nv12(fid, &fb_info, dst_width, dst_height);
 		break;
+	}
 	}
 
 	if (ret < 0) {
@@ -745,7 +750,7 @@ int uvc_start(void)
 		goto err_activate;
 	}
 
-	ret = uvc_frame_init(UVC_FRAME_SIZE);
+	ret = uvc_frame_init(MAX_UVC_PAYLOAD_TRANSFER_SIZE);
 	if (ret < 0) {
 		LOG("Error allocating the UVC frame (0x%08X)\n", ret);
 		goto err_uvc_frame_init;
