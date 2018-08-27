@@ -27,8 +27,8 @@
  * Helper macros
  */
 
-#define FRAME_BITRATE(w, h, bpp, interval)	((w * h * bpp) / (interval * 100 * 1E-9))
-#define FPS_TO_INTERVAL(fps)			((1E9 / 100) / fps)
+#define FRAME_BITRATE(w, h, bpp, interval)	(((w) * (h) * (bpp)) / ((interval) * 100 * 1E-9))
+#define FPS_TO_INTERVAL(fps)			((1E9 / 100) / (fps))
 
 static
 unsigned char interface_association_descriptor[] = {
@@ -90,12 +90,12 @@ struct uvc_control_endpoint_descriptor video_control_specific_interrupt_endpoint
 };
 
 DECLARE_UVC_INPUT_HEADER_DESCRIPTOR(1, 1);
-DECLARE_UVC_FRAME_UNCOMPRESSED(1);
+DECLARE_UVC_FRAME_UNCOMPRESSED(2);
 
 static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_uncompressed format_uncompressed_nv12;
-	struct UVC_FRAME_UNCOMPRESSED(1) frames_uncompressed_nv12[3];
+	struct UVC_FRAME_UNCOMPRESSED(2) frames_uncompressed_nv12[3];
 	struct uvc_color_matching_descriptor format_uncompressed_nv12_color_matching;
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
@@ -128,50 +128,50 @@ static struct __attribute__((packed)) {
 		.bCopyProtect			= 0,
 	},
 	.frames_uncompressed_nv12 = {
-		(struct UVC_FRAME_UNCOMPRESSED(1)){
-			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(1),
+		(struct UVC_FRAME_UNCOMPRESSED(2)){
+			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(2),
 			.bDescriptorType		= USB_DT_CS_INTERFACE,
 			.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
 			.bFrameIndex			= 1,
 			.bmCapabilities			= 0,
 			.wWidth				= 960,
 			.wHeight			= 544,
-			.dwMinBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
+			.dwMinBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
 			.dwMaxVideoFrameBufferSize	= (960 * 544 * 3) / 2,
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
-			.bFrameIntervalType		= 1,
-			.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
+			.bFrameIntervalType		= 2,
+			.dwFrameInterval		= {FPS_TO_INTERVAL(30), FPS_TO_INTERVAL(60)},
 		},
-		(struct UVC_FRAME_UNCOMPRESSED(1)){
-			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(1),
+		(struct UVC_FRAME_UNCOMPRESSED(2)){
+			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(2),
 			.bDescriptorType		= USB_DT_CS_INTERFACE,
 			.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
 			.bFrameIndex			= 2,
 			.bmCapabilities			= 0,
 			.wWidth				= 896,
 			.wHeight			= 504,
-			.dwMinBitRate			= FRAME_BITRATE(896, 504, 12, FPS_TO_INTERVAL(60)),
+			.dwMinBitRate			= FRAME_BITRATE(896, 504, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(896, 504, 12, FPS_TO_INTERVAL(60)),
 			.dwMaxVideoFrameBufferSize	= (896 * 504 * 3) / 2,
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
-			.bFrameIntervalType		= 1,
-			.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
+			.bFrameIntervalType		= 2,
+			.dwFrameInterval		= {FPS_TO_INTERVAL(30), FPS_TO_INTERVAL(60)},
 		},
-		(struct UVC_FRAME_UNCOMPRESSED(1)){
-			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(1),
+		(struct UVC_FRAME_UNCOMPRESSED(2)){
+			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(2),
 			.bDescriptorType		= USB_DT_CS_INTERFACE,
 			.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
 			.bFrameIndex			= 3,
 			.bmCapabilities			= 0,
 			.wWidth				= 480,
 			.wHeight			= 272,
-			.dwMinBitRate			= FRAME_BITRATE(480, 272, 12, FPS_TO_INTERVAL(60)),
+			.dwMinBitRate			= FRAME_BITRATE(480, 272, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(480, 272, 12, FPS_TO_INTERVAL(60)),
 			.dwMaxVideoFrameBufferSize	= (480 * 272 * 3) / 2,
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
-			.bFrameIntervalType		= 1,
-			.dwFrameInterval		= {FPS_TO_INTERVAL(60)},
+			.bFrameIntervalType		= 2,
+			.dwFrameInterval		= {FPS_TO_INTERVAL(30), FPS_TO_INTERVAL(60)},
 		},
 	},
 	.format_uncompressed_nv12_color_matching = {

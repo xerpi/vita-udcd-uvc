@@ -594,7 +594,7 @@ static int send_frame(void)
 
 	switch (uvc_probe_control_setting.bFormatIndex) {
 	case FORMAT_INDEX_UNCOMPRESSED_NV12: {
-		const struct UVC_FRAME_UNCOMPRESSED(1) *frames =
+		const struct UVC_FRAME_UNCOMPRESSED(2) *frames =
 			video_streaming_descriptors.frames_uncompressed_nv12;
 		int dst_width = frames[uvc_probe_control_setting.bFrameIndex - 1].wWidth;
 		int dst_height = frames[uvc_probe_control_setting.bFrameIndex - 1].wHeight;
@@ -616,10 +616,24 @@ static int send_frame(void)
 
 static int display_vblank_cb_func(int notifyId, int notifyCount, int notifyArg, void *common)
 {
+	static unsigned int frames = 0;
+	unsigned int elapsed;
+
 	/*LOG("VBlank: %d, %d, %d, %p\n", notifyId, notifyCount, notifyArg, common);*/
 
-	if (stream)
+	if (!stream)
+		return 0;
+
+	/*
+	 * VBlanks occur at ~60FPS.
+	 */
+	frames += notifyCount;
+	elapsed = FPS_TO_INTERVAL(60 / frames);
+
+	if (elapsed >= uvc_probe_control_setting.dwFrameInterval) {
 		ksceKernelSetEventFlag(uvc_event_flag_id, 1);
+		frames = 0;
+	}
 
 	return 0;
 }
