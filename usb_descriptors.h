@@ -141,7 +141,7 @@ static struct __attribute__((packed)) {
 			.dwMaxVideoFrameBufferSize	= (960 * 544 * 3) / 2,
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
-			.dwFrameInterval		= {FPS_TO_INTERVAL(30), FPS_TO_INTERVAL(60)},
+			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
 		},
 		(struct UVC_FRAME_UNCOMPRESSED(2)){
 			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(2),
@@ -156,7 +156,7 @@ static struct __attribute__((packed)) {
 			.dwMaxVideoFrameBufferSize	= (896 * 504 * 3) / 2,
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
-			.dwFrameInterval		= {FPS_TO_INTERVAL(30), FPS_TO_INTERVAL(60)},
+			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
 		},
 		(struct UVC_FRAME_UNCOMPRESSED(2)){
 			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(2),
@@ -171,7 +171,7 @@ static struct __attribute__((packed)) {
 			.dwMaxVideoFrameBufferSize	= (480 * 272 * 3) / 2,
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
-			.dwFrameInterval		= {FPS_TO_INTERVAL(30), FPS_TO_INTERVAL(60)},
+			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
 		},
 	},
 	.format_uncompressed_nv12_color_matching = {
