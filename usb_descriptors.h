@@ -95,7 +95,7 @@ DECLARE_UVC_FRAME_UNCOMPRESSED(2);
 static struct __attribute__((packed)) {
 	struct UVC_INPUT_HEADER_DESCRIPTOR(1, 1) input_header_descriptor;
 	struct uvc_format_uncompressed format_uncompressed_nv12;
-	struct UVC_FRAME_UNCOMPRESSED(2) frames_uncompressed_nv12[3];
+	struct UVC_FRAME_UNCOMPRESSED(2) frames_uncompressed_nv12[4];
 	struct uvc_color_matching_descriptor format_uncompressed_nv12_color_matching;
 } video_streaming_descriptors = {
 	.input_header_descriptor = {
@@ -163,6 +163,21 @@ static struct __attribute__((packed)) {
 			.bDescriptorType		= USB_DT_CS_INTERFACE,
 			.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
 			.bFrameIndex			= 3,
+			.bmCapabilities			= 0,
+			.wWidth				= 864,
+			.wHeight			= 488,
+			.dwMinBitRate			= FRAME_BITRATE(864, 488, 12, FPS_TO_INTERVAL(30)),
+			.dwMaxBitRate			= FRAME_BITRATE(864, 488, 12, FPS_TO_INTERVAL(60)),
+			.dwMaxVideoFrameBufferSize	= (864 * 488 * 3) / 2,
+			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
+			.bFrameIntervalType		= 2,
+			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
+		},
+		(struct UVC_FRAME_UNCOMPRESSED(2)){
+			.bLength			= UVC_DT_FRAME_UNCOMPRESSED_SIZE(2),
+			.bDescriptorType		= USB_DT_CS_INTERFACE,
+			.bDescriptorSubType		= UVC_VS_FRAME_UNCOMPRESSED,
+			.bFrameIndex			= 4,
 			.bmCapabilities			= 0,
 			.wWidth				= 480,
 			.wHeight			= 272,
