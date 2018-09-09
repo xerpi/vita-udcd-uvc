@@ -7,14 +7,14 @@ LIBS	= -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub \
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
-	OBJS	+= log.o draw.o font_data.o
-	CFLAGS	+= -DDEBUG
+	OBJS	+= debug/log.o debug/draw.o debug/font_data.o
+	CFLAGS	+= -DDEBUG -Idebug
 	LIBS	+= -lSceSysclibForDriver_stub -lSceIofilemgrForDriver_stub
 endif
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
-CFLAGS	+= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork
+CFLAGS	+= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork -I.
 DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx

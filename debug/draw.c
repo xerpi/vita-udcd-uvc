@@ -8,8 +8,9 @@
 #include <psp2kern/kernel/sysmem.h>
 #include <psp2kern/display.h>
 #include "draw.h"
-#include "utils.h"
 #include "log.h"
+
+#define ALIGN(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 
 extern const unsigned char msx_font[];
 

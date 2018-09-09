@@ -6,13 +6,15 @@
 #include <psp2kern/display.h>
 #include <psp2kern/lowio/iftu.h>
 #include <taihen.h>
+#include <string.h>
 #include "usb_descriptors.h"
 #include "uvc.h"
-#include "utils.h"
+
+#ifdef DEBUG
+
 #include "log.h"
 #include "draw.h"
 
-#ifdef DEBUG
 #define LOG(s, ...) \
 	do { \
 		char __buffer[256]; \
@@ -23,6 +25,8 @@
 #else
 #define LOG(...) (void)0
 #endif
+
+#define ALIGN(x, a)			(((x) + ((a) - 1)) & ~((a) - 1))
 
 #define UVC_DRIVER_NAME			"VITAUVC00"
 #define UVC_USB_PID			0x1337
