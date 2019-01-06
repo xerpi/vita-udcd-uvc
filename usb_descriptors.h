@@ -118,7 +118,7 @@ static struct __attribute__((packed)) {
 		.bDescriptorType		= USB_DT_CS_INTERFACE,
 		.bDescriptorSubType		= UVC_VS_FORMAT_UNCOMPRESSED,
 		.bFormatIndex			= FORMAT_INDEX_UNCOMPRESSED_NV12,
-		.bNumFrameDescriptors		= 3,
+		.bNumFrameDescriptors		= 4,
 		.guidFormat			= UVC_GUID_FORMAT_NV12,
 		.bBitsPerPixel			= 12,
 		.bDefaultFrameIndex		= 1,
