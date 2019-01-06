@@ -27,6 +27,8 @@
  * Helper macros
  */
 
+#define VIDEO_FRAME_SIZE_NV12(w, h)		(((w) * (h) * 3) / 2)
+
 #define FRAME_BITRATE(w, h, bpp, interval)	(((w) * (h) * (bpp)) / ((interval) * 100 * 1E-9))
 #define FPS_TO_INTERVAL(fps)			((1E9 / 100) / (fps))
 
@@ -138,7 +140,7 @@ static struct __attribute__((packed)) {
 			.wHeight			= 544,
 			.dwMinBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(960, 544, 12, FPS_TO_INTERVAL(60)),
-			.dwMaxVideoFrameBufferSize	= (960 * 544 * 3) / 2,
+			.dwMaxVideoFrameBufferSize	= VIDEO_FRAME_SIZE_NV12(960, 544),
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
 			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
@@ -153,7 +155,7 @@ static struct __attribute__((packed)) {
 			.wHeight			= 504,
 			.dwMinBitRate			= FRAME_BITRATE(896, 504, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(896, 504, 12, FPS_TO_INTERVAL(60)),
-			.dwMaxVideoFrameBufferSize	= (896 * 504 * 3) / 2,
+			.dwMaxVideoFrameBufferSize	= VIDEO_FRAME_SIZE_NV12(896, 504),
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
 			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
@@ -168,7 +170,7 @@ static struct __attribute__((packed)) {
 			.wHeight			= 488,
 			.dwMinBitRate			= FRAME_BITRATE(864, 488, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(864, 488, 12, FPS_TO_INTERVAL(60)),
-			.dwMaxVideoFrameBufferSize	= (864 * 488 * 3) / 2,
+			.dwMaxVideoFrameBufferSize	= VIDEO_FRAME_SIZE_NV12(864, 488),
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
 			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
@@ -183,7 +185,7 @@ static struct __attribute__((packed)) {
 			.wHeight			= 272,
 			.dwMinBitRate			= FRAME_BITRATE(480, 272, 12, FPS_TO_INTERVAL(30)),
 			.dwMaxBitRate			= FRAME_BITRATE(480, 272, 12, FPS_TO_INTERVAL(60)),
-			.dwMaxVideoFrameBufferSize	= (480 * 272 * 3) / 2,
+			.dwMaxVideoFrameBufferSize	= VIDEO_FRAME_SIZE_NV12(480, 272),
 			.dwDefaultFrameInterval		= FPS_TO_INTERVAL(60),
 			.bFrameIntervalType		= 2,
 			.dwFrameInterval		= {FPS_TO_INTERVAL(60), FPS_TO_INTERVAL(30)},
