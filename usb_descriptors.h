@@ -370,7 +370,7 @@ struct SceUdcdDeviceDescriptor devdesc_full = {
 
 /* Full-Speed endpoint descriptors */
 static
-struct SceUdcdEndpointDescriptor endpdesc_full[4] = {
+struct SceUdcdEndpointDescriptor endpdesc_full[3] = {
 	/* Video Control endpoints */
 	{
 		USB_DT_ENDPOINT_SIZE,
@@ -402,13 +402,13 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 	{	/* Standard Video Control Interface Descriptor */
 		USB_DT_INTERFACE_SIZE,
 		USB_DT_INTERFACE,
-		0,				/* bInterfaceNumber */
+		CONTROL_INTERFACE,		/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
 		1,				/* bNumEndpoints */
 		USB_CLASS_VIDEO,		/* bInterfaceClass */
 		UVC_SC_VIDEOCONTROL,		/* bInterfaceSubClass */
 		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
-		1,				/* iInterface */
+		0,				/* iInterface */
 		&endpdesc_full[0],		/* endpoints */
 		(void *)&video_control_descriptors,
 		sizeof(video_control_descriptors)
@@ -416,13 +416,13 @@ struct SceUdcdInterfaceDescriptor interdesc_full[3] = {
 	{	/* Standard Video Streaming Interface Descriptor */
 		USB_DT_INTERFACE_SIZE,
 		USB_DT_INTERFACE,
-		1,				/* bInterfaceNumber */
+		STREAM_INTERFACE,		/* bInterfaceNumber */
 		0,				/* bAlternateSetting */
 		1,				/* bNumEndpoints */
 		USB_CLASS_VIDEO,		/* bInterfaceClass */
 		UVC_SC_VIDEOSTREAMING,		/* bInterfaceSubClass */
 		UVC_PC_PROTOCOL_UNDEFINED,	/* bInterfaceProtocol */
-		1,				/* iInterface */
+		0,				/* iInterface */
 		&endpdesc_full[1],		/* endpoints */
 		(void *)&video_streaming_descriptors,
 		sizeof(video_streaming_descriptors)
