@@ -14,14 +14,11 @@
 
 extern const unsigned char msx_font[];
 
-static int console_x = 16;
-static int console_y = 16;
-
 static SceDisplayFrameBuf fb;
 static SceUID fb_uid = -1;
 static int fb_initialized = 0;
 
-int map_framebuffer()
+int framebuffer_map()
 {
 	const unsigned int fb_size = ALIGN(4 * SCREEN_PITCH * SCREEN_H, 256 * 1024);
 	int ret;
@@ -54,7 +51,7 @@ int map_framebuffer()
 	return ksceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
 }
 
-void unmap_framebuffer(void)
+void framebuffer_unmap(void)
 {
 	if (fb_uid >= 0)
 		ksceKernelFreeMemBlock(fb_uid);
@@ -62,7 +59,11 @@ void unmap_framebuffer(void)
 	fb_initialized = 0;
 }
 
-typedef unsigned int u32;
+int framebuffer_is_mapped(void)
+{
+	return fb_initialized;
+}
+
 void fill_fb(void *addr, unsigned int color)
 {
 	int i, j;
@@ -72,7 +73,7 @@ void fill_fb(void *addr, unsigned int color)
 
 	for (i = 0; i < SCREEN_H; i++) {
 		for (j = 0; j < SCREEN_PITCH; j++) {
-			*(u32 *)((char *)addr + i * SCREEN_PITCH * 4 + j * 4) = color;
+			*(uint32_t *)((char *)addr + i * SCREEN_PITCH * 4 + j * 4) = color;
 		}
 	}
 }
@@ -176,47 +177,4 @@ void font_draw_string(int x, int y, uint32_t color, const char *string)
 		}
 		++s;
 	}
-}
-
-void console_print(const char *s)
-{
-	if (!fb_initialized)
-		return;
-
-	if (!s)
-		return;
-
-	for (; *s; s++) {
-		if (*s == '\n') {
-			console_x = 16;
-			console_y += 16;
-			draw_rectangle(0, console_y, SCREEN_W, 16, BLACK);
-		} else if (*s == ' ') {
-			console_x += 16;
-		} else if (*s == '\t') {
-			console_x += 16 * 4;
-		} else {
-			font_draw_char(console_x, console_y, WHITE, *s);
-			console_x += 16;
-		}
-
-		if (console_x > SCREEN_W)
-			console_x = 16;
-
-		if (console_y + 16 > SCREEN_H) {
-			console_y = 16;
-			draw_rectangle(0, console_y, SCREEN_W, 16, BLACK);
-		}
-	}
-}
-
-int console_get_y(void)
-{
-	return console_y;
-}
-
-void console_set_y(int y)
-{
-	console_y = y;
-	draw_rectangle(0, console_y, SCREEN_W, 16, BLACK);
 }

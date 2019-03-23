@@ -22,8 +22,9 @@
 #define WHITE RGBA8(255, 255, 255, 255)
 #define BLACK RGBA8(0,   0,   0,   255)
 
-int map_framebuffer(void);
-void unmap_framebuffer(void);
+int framebuffer_map(void);
+void framebuffer_unmap(void);
+int framebuffer_is_mapped(void);
 void clear_screen();
 void draw_pixel(uint32_t x, uint32_t y, uint32_t color);
 void draw_rectangle(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color);

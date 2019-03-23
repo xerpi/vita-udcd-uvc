@@ -7,7 +7,7 @@ LIBS	= -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub \
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
-	OBJS	+= debug/log.o debug/draw.o debug/font_data.o
+	OBJS	+= debug/log.o debug/draw.o debug/console.o debug/font_data.o
 	CFLAGS	+= -DDEBUG -Idebug
 	LIBS	+= -lSceSysclibForDriver_stub -lSceIofilemgrForDriver_stub
 endif

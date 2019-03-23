@@ -203,16 +203,18 @@ static struct __attribute__((packed)) {
 
 /* Endpoint blocks */
 static
-struct SceUdcdEndpoint endpoints[4] = {
+struct SceUdcdEndpoint endpoints[3] = {
 	{USB_ENDPOINT_OUT, 0, 0, 0},
 	{USB_ENDPOINT_IN, 1, 0, 0},
 	{USB_ENDPOINT_IN, 2, 0, 0}
 };
 
-/* Interfaces */
+/* Interface */
 static
-struct SceUdcdInterface interfaces[1] = {
-	{-1, 0, 2},
+struct SceUdcdInterface interface = {
+	.expectNumber		= -1,
+	.interfaceNumber	= 0,
+	.numInterfaces		= 2
 };
 
 /* String descriptors */
@@ -227,7 +229,7 @@ static
 struct SceUdcdStringDescriptor string_descriptor_serial = {
 	18,
 	USB_DT_STRING,
-	{'V', 'i', 't', 'a', ' ', 'U', 'V', 'C'}
+	{'U', 'D', 'C', 'D', ' ', 'U', 'V', 'C'}
 };
 
 /* Hi-Speed device descriptor */

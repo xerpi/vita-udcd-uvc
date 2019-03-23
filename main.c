@@ -14,6 +14,7 @@
 
 #include "log.h"
 #include "draw.h"
+#include "console.h"
 
 #define LOG(s, ...) \
 	do { \
@@ -316,14 +317,12 @@ static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
 
 static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequest *req, void *user_data)
 {
-	int ret = 0;
-
 	LOG("usb_driver_process_request(recipient: %x, arg: %x)\n", recipient, arg);
 	LOG("  request: %x type: %x wValue: %x wIndex: %x wLength: %x\n",
 		req->bRequest, req->bmRequestType, req->wValue, req->wIndex, req->wLength);
 
 	if (arg < 0)
-		ret = -1;
+		return -1;
 
 	switch (req->bmRequestType) {
 	case USB_CTRLTYPE_DIR_DEVICE2HOST |
@@ -365,13 +364,14 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 	     USB_CTRLTYPE_REC_DEVICE: /* 0x80 */
 		switch (req->wValue >> 8) {
 		case 0x0A: /* USB_DT_DEBUG */
-			ret = -1;
 			break;
 		}
 		break;
+	default:
+		LOG("Unknown bmRequestType: 0x%02X\n", req->bmRequestType);
 	}
 
-	return ret;
+	return 0;
 }
 
 static int uvc_udcd_change_setting(int interfaceNumber, int alternateSetting, int bus)
@@ -420,7 +420,7 @@ static SceUdcdDriver uvc_udcd_driver = {
 	.driverName			= UVC_DRIVER_NAME,
 	.numEndpoints			= 3,
 	.endpoints			= &endpoints[0],
-	.interface			= &interfaces[0],
+	.interface			= &interface,
 	.descriptor_hi			= &devdesc_hi,
 	.configuration_hi		= &config_hi,
 	.descriptor			= &devdesc_full,
@@ -644,6 +644,17 @@ static int display_vblank_cb_func(int notifyId, int notifyCount, int notifyArg, 
 static int uvc_thread(SceSize args, void *argp)
 {
 	SceUID display_vblank_cb_uid;
+#if 0
+	/*
+	 * Wait until the MTP driver starts to takeover.
+	 */
+	SceUdcdWaitParam wait_param;
+	memset(&wait_param, 0, sizeof(wait_param));
+	wait_param.status = SCE_UDCD_STATUS_ACTIVATED;
+	wait_param.driverName = "USB_MTP_Driver";
+	ksceUdcdWaitState(&wait_param, 0);
+	ksceKernelDelayThread(250 * 1000);
+#endif
 
 	stream = 0;
 	uvc_start();
@@ -852,7 +863,8 @@ int module_start(SceSize argc, const void *args)
 
 #ifdef DEBUG
 	log_reset();
-	map_framebuffer();
+	framebuffer_map();
+	console_init();
 #endif
 
 	LOG("udcd_uvc by xerpi\n");
@@ -927,7 +939,8 @@ int module_stop(SceSize argc, const void *args)
 	}
 
 #ifdef DEBUG
-	unmap_framebuffer();
+	console_fini();
+	framebuffer_unmap();
 	log_flush();
 #endif
 
