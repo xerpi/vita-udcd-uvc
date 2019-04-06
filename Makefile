@@ -3,7 +3,7 @@ OBJS	= main.o
 LIBS	= -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub \
 	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub \
 	-lSceDisplayForDriver_stub -lSceIftuForDriver_stub \
-	-ltaihenForKernel_stub
+	-lSceSysrootForKernel_stub -ltaihenForKernel_stub
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
