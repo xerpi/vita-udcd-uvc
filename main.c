@@ -584,16 +584,21 @@ static int send_frame(void)
 	static int fid = 0;
 
 	int ret;
+	char titleid[0x10];
 	SceDisplayFrameBufInfo fb_info;
 	int head = ksceDisplayGetPrimaryHead();
 
 	memset(&fb_info, 0, sizeof(fb_info));
 	fb_info.size = sizeof(fb_info);
 	ret = ksceDisplayGetFrameBufInfoForPid(-1, head, 0, &fb_info);
-	if (ret < 0)
-		ret = ksceDisplayGetFrameBufInfoForPid(-1, head, 1, &fb_info);
-	if (ret < 0)
-		return ret;
+
+	ksceKernelGetProcessTitleId(fb_info.pid, titleid, 10);
+
+	if((ret < 0) || (strncmp(titleid, "NPXS", 4) == 0)){
+		ret = ksceDisplayGetProcFrameBufInternal(-1, head, 1, &fb_info); // SceShell, system app
+		if (ret < 0)
+			return ret;
+	}
 
 	switch (uvc_probe_control_setting.bFormatIndex) {
 	case FORMAT_INDEX_UNCOMPRESSED_NV12: {
