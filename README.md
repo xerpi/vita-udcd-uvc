@@ -21,9 +21,9 @@ controller directly performs a DMA transfer from the physical address of the res
 
 ## Download and installation
 
-**Precompiled download**:
+**Download**:
 
-* [udcd\_uvc.skprx](https://drive.google.com/open?id=1sXIraB3Wfew3QmTJdfL3vCH3WjIIgiO_)
+* [udcd\_uvc.skprx](https://github.com/xerpi/vita-udcd-uvc/releases)
 
 **Compilation**
 
