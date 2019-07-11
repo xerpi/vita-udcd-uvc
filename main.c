@@ -590,7 +590,7 @@ static int send_frame(void)
 	memset(&fb_info, 0, sizeof(fb_info));
 	fb_info.size = sizeof(fb_info);
 	ret = ksceDisplayGetProcFrameBufInternal(-1, head, 0, &fb_info);
-	if (ret < 0)
+	if (ret < 0 || fb_info.paddr == 0)
 		ret = ksceDisplayGetProcFrameBufInternal(-1, head, 1, &fb_info);
 	if (ret < 0)
 		return ret;
