@@ -196,9 +196,9 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 			uvc_probe_control_setting.bFormatIndex = streaming_control->bFormatIndex;
 			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
 			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
-
-			LOG("Probe SET_CUR, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
-
+			LOG("Probe SET_CUR, bFormatIndex: %d, bmFramingInfo: %x\n",
+			    uvc_probe_control_setting.bFormatIndex,
+			    uvc_probe_control_setting.bmFramingInfo);
 			break;
 		}
 		break;
@@ -208,8 +208,9 @@ static void uvc_handle_video_streaming_req_recv(const SceUdcdEP0DeviceRequest *r
 			uvc_probe_control_setting.bFormatIndex = streaming_control->bFormatIndex;
 			uvc_probe_control_setting.bFrameIndex = streaming_control->bFrameIndex;
 			uvc_probe_control_setting.dwFrameInterval = streaming_control->dwFrameInterval;
-
-			LOG("Commit SET_CUR, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
+			LOG("Commit SET_CUR, bFormatIndex: %d, bmFramingInfo: %x\n",
+			    uvc_probe_control_setting.bFormatIndex,
+			    uvc_probe_control_setting.bmFramingInfo);
 
 			stream = 1;
 			ksceKernelSetEventFlag(uvc_event_flag_id, 1);
@@ -257,12 +258,16 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 		case UVC_GET_MIN:
 		case UVC_GET_MAX:
 		case UVC_GET_DEF:
-			LOG("Probe GET_DEF, bFormatIndex: %d\n", uvc_probe_control_setting_default.bFormatIndex);
+			LOG("Probe GET_DEF, bFormatIndex: %d, bmFramingInfo: %x\n",
+			    uvc_probe_control_setting_default.bFormatIndex,
+			    uvc_probe_control_setting_default.bmFramingInfo);
 			usb_ep0_req_send(&uvc_probe_control_setting_default,
 					 sizeof(uvc_probe_control_setting_default));
 			break;
 		case UVC_GET_CUR:
-			LOG("Probe GET_CUR, bFormatIndex: %d\n", uvc_probe_control_setting.bFormatIndex);
+			LOG("Probe GET_CUR, bFormatIndex: %d, bmFramingInfo: %x\n",
+			    uvc_probe_control_setting.bFormatIndex,
+			    uvc_probe_control_setting.bmFramingInfo);
 			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
@@ -301,10 +306,24 @@ static void uvc_handle_video_abort(void)
 	}
 }
 
+static void uvc_handle_set_interface(const SceUdcdEP0DeviceRequest *req)
+{
+	LOG("uvc_handle_set_interface\n");
+
+	/* MAC OS sends Set Interface Alternate Setting 0 command after
+	 * stopping to stream. This application needs to stop streaming. */
+	if ((req->wIndex == STREAM_INTERFACE) && (req->wValue == 0))
+		uvc_handle_video_abort();
+}
+
 static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
 {
 	LOG("uvc_handle_clear_feature\n");
 
+	/* Windows OS sends Clear Feature Request after it stops streaming,
+	 * however MAC OS sends clear feature request right after it sends a
+	 * Commit -> SET_CUR request. Hence, stop streaming only of streaming
+	 * has started. */
 	switch (req->wValue) {
 	case USB_FEATURE_ENDPOINT_HALT:
 		if ((req->wIndex & USB_ENDPOINT_ADDRESS_MASK) ==
@@ -347,6 +366,15 @@ static int uvc_udcd_process_request(int recipient, int arg, SceUdcdEP0DeviceRequ
 			break;
 		case STREAM_INTERFACE:
 			uvc_handle_video_streaming_req(req);
+			break;
+		}
+		break;
+	case USB_CTRLTYPE_DIR_HOST2DEVICE |
+	     USB_CTRLTYPE_TYPE_STANDARD |
+	     USB_CTRLTYPE_REC_INTERFACE: /* 0x01 */
+		switch (req->bRequest) {
+		case USB_REQ_SET_INTERFACE:
+			uvc_handle_set_interface(req);
 			break;
 		}
 		break;
