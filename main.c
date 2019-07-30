@@ -38,6 +38,16 @@
 #define UVC_PAYLOAD_SIZE(frame_size)	(UVC_PAYLOAD_HEADER_SIZE + (frame_size))
 #define MAX_UVC_PAYLOAD_TRANSFER_SIZE	UVC_PAYLOAD_SIZE(MAX_UVC_VIDEO_FRAME_SIZE)
 
+int ksceOledDisplayOn();
+int ksceOledDisplayOff();
+int ksceOledGetBrightness();
+int ksceOledSetBrightness(int brightness);
+
+int ksceLcdDisplayOn();
+int ksceLcdDisplayOff();
+int ksceLcdGetBrightness();
+int ksceLcdSetBrightness(int brightness);
+
 struct uvc_frame {
 	unsigned char header[UVC_PAYLOAD_HEADER_SIZE];
 	unsigned char data[];
@@ -77,6 +87,10 @@ static int stream;
 static SceUID uvc_frame_buffer_uid;
 static struct uvc_frame *uvc_frame_buffer_addr;
 SceUID uvc_frame_req_evflag;
+
+#if defined(DISPLAY_OFF_OLED) || defined(DISPLAY_OFF_LCD)
+static int prev_brightness;
+#endif
 
 static int usb_ep0_req_send(const void *data, unsigned int size)
 {
@@ -415,6 +429,14 @@ static int uvc_udcd_attach(int usb_version, void *user_data)
 
 	ksceUdcdClearFIFO(&endpoints[2]);
 
+#if defined(DISPLAY_OFF_OLED)
+	prev_brightness = ksceOledGetBrightness();
+	ksceOledDisplayOff();
+#elif defined(DISPLAY_OFF_LCD)
+	prev_brightness = ksceLcdGetBrightness();
+	ksceLcdDisplayOff();
+#endif
+
 	return 0;
 }
 
@@ -423,6 +445,14 @@ static void uvc_udcd_detach(void *user_data)
 	LOG("uvc_udcd_detach\n");
 
 	uvc_handle_video_abort();
+
+#if defined(DISPLAY_OFF_OLED)
+	ksceOledDisplayOn();
+	ksceOledSetBrightness(prev_brightness);
+#elif defined(DISPLAY_OFF_LCD)
+	ksceLcdDisplayOn();
+	ksceLcdSetBrightness(prev_brightness);
+#endif
 }
 
 static void uvc_udcd_configure(int usb_version, int desc_count, SceUdcdInterfaceSettings *settings, void *user_data)
@@ -518,7 +548,9 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 					int dst_width, int dst_height)
 {
 	int ret;
+#ifdef DEBUG
 	uint64_t time1, time2, time3;
+#endif
 	uintptr_t dst_paddr;
 	uintptr_t src_paddr = fb_info->paddr;
 	unsigned int src_width = fb_info->framebuf.width;
@@ -528,7 +560,9 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	unsigned int src_pixelfmt = fb_info->framebuf.pixelformat;
 	unsigned char *uvc_frame_data = uvc_frame_buffer_addr->data;
 
+#ifdef DEBUG
 	time1 = ksceKernelGetSystemTimeWide();
+#endif
 
 	SceIftuCscParams RGB_to_YCbCr_JPEG_csc_params = {
 		0, 0x202, 0x3FF,
@@ -590,7 +624,9 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 
 	ksceIftuCsc(&dst, &src, &params);
 
+#ifdef DEBUG
 	time2 = ksceKernelGetSystemTimeWide();
+#endif
 
 	ret = uvc_frame_transfer(uvc_frame_buffer_addr,
 				 UVC_PAYLOAD_SIZE(VIDEO_FRAME_SIZE_NV12(dst_width, dst_height)),
@@ -600,9 +636,11 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 		return ret;
 	}
 
+#ifdef DEBUG
 	time3 = ksceKernelGetSystemTimeWide();
 
 	LOG("NV12 CSC: %lldus xfer: %lldus\n", time2 - time1, time3 - time2);
+#endif
 
 	return 0;
 }
