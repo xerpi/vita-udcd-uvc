@@ -2,7 +2,7 @@
 
 ## What's this?
 
-This is a kernel plugin that uses lets you stream your PSVita screen to your computer via USB.
+This is a kernel plugin that lets you stream your PSVita screen to your computer via USB.
 
 ## How does it work?
 
