@@ -1,5 +1,5 @@
 TARGET	= udcd_uvc
-OBJS	= main.o
+OBJS	= src/main.o
 LIBS	= -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub \
 	-lSceCpuForDriver_stub -lSceUdcdForDriver_stub \
 	-lSceDisplayForDriver_stub -lSceIftuForDriver_stub \
@@ -23,7 +23,7 @@ endif
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
-CFLAGS	+= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork -I.
+CFLAGS	+= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork -Iinclude
 DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx
