@@ -927,6 +927,13 @@ static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_
 	return ret;
 }
 
+static SceUID mtp_hook_uid = -1;
+static tai_hook_ref_t mtp_hook_ref;
+
+static int SceUsbMtpForDriver_6FC97594_patched() {
+	return 0x0;
+}
+
 void _start() __attribute__((weak, alias("module_start")));
 
 int module_start(SceSize argc, const void *args)
@@ -948,6 +955,10 @@ int module_start(SceSize argc, const void *args)
 	SceUdcd_sub_01E1128C_hook_uid = taiHookFunctionOffsetForKernel(KERNEL_PID,
 		&SceUdcd_sub_01E1128C_ref, SceUdcd_modinfo.modid, 0,
 		0x01E1128C - 0x01E10000, 1, SceUdcd_sub_01E1128C_hook_func);
+
+	mtp_hook_uid = taiHookFunctionExportForKernel(KERNEL_PID, 
+		&mtp_hook_ref, "SceUsbMtp", TAI_ANY_LIBRARY,
+		0x6FC97594, SceUsbMtpForDriver_6FC97594_patched);
 
 	uvc_thread_id = ksceKernelCreateThread("uvc_thread", uvc_thread,
 					       0x3C, 0x1000, 0, 0x10000, 0);
@@ -1009,6 +1020,10 @@ int module_stop(SceSize argc, const void *args)
 	if (SceUdcd_sub_01E1128C_hook_uid > 0) {
 		taiHookReleaseForKernel(SceUdcd_sub_01E1128C_hook_uid,
 			SceUdcd_sub_01E1128C_ref);
+	}
+	if (mtp_hook_uid > 0) {
+		taiHookReleaseForKernel(mtp_hook_uid,
+			mtp_hook_ref);
 	}
 
 #ifdef DEBUG
