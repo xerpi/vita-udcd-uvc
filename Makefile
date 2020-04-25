@@ -23,7 +23,7 @@ endif
 
 PREFIX	= arm-vita-eabi
 CC	= $(PREFIX)-gcc
-CFLAGS	+= -Wl,-q -Wall -O0 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork -Iinclude
+CFLAGS	+= -Wl,-q -Wall -O2 -nostartfiles -mcpu=cortex-a9 -mthumb-interwork -Iinclude
 DEPS	= $(OBJS:.o=.d)
 
 all: $(TARGET).skprx
@@ -48,6 +48,10 @@ clean:
 send: $(TARGET).skprx
 	curl -T $(TARGET).skprx ftp://$(PSVITAIP):1337/ux0:/data/tai/kplugin.skprx
 	@echo "Sent."
+
+launch: send
+	echo "load_skprx ux0:/data/tai/kplugin.skprx" | nc $(PSVITAIP) 1338
+	@echo "Launched!"
 
 taisend: $(TARGET).skprx
 	curl -T $(TARGET).skprx ftp://$(PSVITAIP):1337/ux0:/tai/$(TARGET).skprx

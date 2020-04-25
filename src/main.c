@@ -18,9 +18,9 @@
 
 #define LOG(s, ...) \
 	do { \
-		char __buffer[256]; \
+		char __buffer[128]; \
 		snprintf(__buffer, sizeof(__buffer), s, ##__VA_ARGS__); \
-		LOG_TO_FILE(__buffer); \
+		/*LOG_TO_FILE(__buffer);*/ \
 		console_print(__buffer); \
 	} while (0)
 #else
@@ -28,6 +28,7 @@
 #endif
 
 #define ALIGN(x, a)			(((x) + ((a) - 1)) & ~((a) - 1))
+#define UNUSED(x)			((void)x)
 
 #define UVC_DRIVER_NAME			"VITAUVC00"
 #define UVC_USB_PID			0x1337
@@ -544,13 +545,9 @@ static inline unsigned int display_pixelformat_bpp(unsigned int fmt)
 	}
 }
 
-static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
+static int frame_convert_to_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
 					int dst_width, int dst_height)
 {
-	int ret;
-#ifdef DEBUG
-	uint64_t time1, time2, time3;
-#endif
 	uintptr_t dst_paddr;
 	uintptr_t src_paddr = fb_info->paddr;
 	unsigned int src_width = fb_info->framebuf.width;
@@ -560,11 +557,7 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	unsigned int src_pixelfmt = fb_info->framebuf.pixelformat;
 	unsigned char *uvc_frame_data = uvc_frame_buffer_addr->data;
 
-#ifdef DEBUG
-	time1 = ksceKernelGetSystemTimeWide();
-#endif
-
-	SceIftuCscParams RGB_to_YCbCr_JPEG_csc_params = {
+	static SceIftuCscParams RGB_to_YCbCr_JPEG_csc_params = {
 		0, 0x202, 0x3FF,
 		0, 0x3FF,     0,
 		{
@@ -622,25 +615,34 @@ static int send_frame_uncompressed_nv12(int fid, const SceDisplayFrameBufInfo *f
 	dst.paddr0 = dst_paddr;
 	dst.paddr1 = dst_paddr + dst_width * dst_height;
 
-	ksceIftuCsc(&dst, &src, &params);
+	return ksceIftuCsc(&dst, &src, &params);
+}
 
-#ifdef DEBUG
+static int convert_and_send_frame_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
+					int dst_width, int dst_height)
+{
+	int ret;
+	uint64_t time1, time2, time3;
+	UNUSED(time1);
+	UNUSED(time2);
+	UNUSED(time3);
+
+	time1 = ksceKernelGetSystemTimeWide();
+
+	ret = frame_convert_to_nv12(fid, fb_info, dst_width, dst_height);
+	if (ret < 0)
+		return ret;
+
 	time2 = ksceKernelGetSystemTimeWide();
-#endif
 
 	ret = uvc_frame_transfer(uvc_frame_buffer_addr,
 				 UVC_PAYLOAD_SIZE(VIDEO_FRAME_SIZE_NV12(dst_width, dst_height)),
 				 fid, 1);
-	if (ret < 0) {
-		LOG("Error sending frame: 0x%08X\n", ret);
+	if (ret < 0)
 		return ret;
-	}
 
-#ifdef DEBUG
 	time3 = ksceKernelGetSystemTimeWide();
-
 	LOG("NV12 CSC: %lldus xfer: %lldus\n", time2 - time1, time3 - time2);
-#endif
 
 	return 0;
 }
@@ -668,7 +670,12 @@ static int send_frame(void)
 		int dst_width = frames[uvc_probe_control_setting.bFrameIndex - 1].wWidth;
 		int dst_height = frames[uvc_probe_control_setting.bFrameIndex - 1].wHeight;
 
-		ret = send_frame_uncompressed_nv12(fid, &fb_info, dst_width, dst_height);
+		ret = convert_and_send_frame_nv12(fid, &fb_info, dst_width, dst_height);
+		if (ret < 0) {
+			LOG("Error sending NV12 frame: 0x%08X\n", ret);
+			return ret;
+		}
+
 		break;
 	}
 	}
