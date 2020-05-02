@@ -176,7 +176,7 @@ static int uvc_frame_req_submit_phycont(const void *data, unsigned int size)
 	int ret;
 
 	req = (SceUdcdDeviceRequest){
-		.endpoint = &endpoints[2],
+		.endpoint = &endpoints[1],
 		.data = (void *)data,
 		.attributes = SCE_UDCD_DEVICE_REQUEST_ATTR_PHYCONT,
 		.size = size,
@@ -316,14 +316,14 @@ static void uvc_handle_video_abort(void)
 	if (stream) {
 		stream = 0;
 
-		ksceUdcdClearFIFO(&endpoints[2]);
-		ksceUdcdReqCancelAll(&endpoints[2]);
+		ksceUdcdClearFIFO(&endpoints[1]);
+		ksceUdcdReqCancelAll(&endpoints[1]);
 	}
 }
 
 static void uvc_handle_set_interface(const SceUdcdEP0DeviceRequest *req)
 {
-	LOG("uvc_handle_set_interface\n");
+	LOG("uvc_handle_set_interface %x %x\n", req->wIndex, req->wValue);
 
 	/* MAC OS sends Set Interface Alternate Setting 0 command after
 	 * stopping to stream. This application needs to stop streaming. */
@@ -342,7 +342,7 @@ static void uvc_handle_clear_feature(const SceUdcdEP0DeviceRequest *req)
 	switch (req->wValue) {
 	case USB_FEATURE_ENDPOINT_HALT:
 		if ((req->wIndex & USB_ENDPOINT_ADDRESS_MASK) ==
-		    endpoints[2].endpointNumber) {
+		    endpoints[1].endpointNumber) {
 			uvc_handle_video_abort();
 		}
 		break;
@@ -428,7 +428,7 @@ static int uvc_udcd_attach(int usb_version, void *user_data)
 {
 	LOG("uvc_udcd_attach %d\n", usb_version);
 
-	ksceUdcdClearFIFO(&endpoints[2]);
+	ksceUdcdClearFIFO(&endpoints[1]);
 
 #if defined(DISPLAY_OFF_OLED)
 	prev_brightness = ksceOledGetBrightness();
@@ -477,8 +477,8 @@ static int uvc_driver_stop(int size, void *p, void *user_data)
 
 static SceUdcdDriver uvc_udcd_driver = {
 	.driverName			= UVC_DRIVER_NAME,
-	.numEndpoints			= 3,
-	.endpoints			= &endpoints[0],
+	.numEndpoints			= 2,
+	.endpoints			= endpoints,
 	.interface			= &interface,
 	.descriptor_hi			= &devdesc_hi,
 	.configuration_hi		= &config_hi,

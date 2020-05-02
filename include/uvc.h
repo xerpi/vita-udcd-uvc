@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 
-#define __packed__ packed
-
 typedef uint8_t __u8;
 typedef uint16_t __u16;
 typedef uint32_t __u32;
@@ -167,6 +165,13 @@ typedef uint32_t __u32;
 #define UVC_STREAM_PTS					(1 << 2)
 #define UVC_STREAM_EOF					(1 << 1)
 #define UVC_STREAM_FID					(1 << 0)
+
+/* 3.2 Device Descriptor */
+#define USB_DEVICE_CLASS_MISCELLANEOUS			0xEF
+
+/* 3.6 Interface Association Descriptor */
+#define UVC_INTERFACE_ASSOCIATION_DESC_SIZE		8
+#define UVC_INTERFACE_ASSOCIATION_DESCRIPTOR_TYPE	0x0B
 
 /* 4.1.2. Control Capabilities */
 #define UVC_CONTROL_CAP_GET				(1 << 0)
