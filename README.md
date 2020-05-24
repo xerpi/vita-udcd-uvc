@@ -42,7 +42,7 @@ ur0:tai/udcd_uvc.skprx
 
 ## Troubleshooting
 
-If the video looks glitched, try to change the video player configuration to use the *NV12* format or switch to another player (like PotPlayer or OBS).
+If the video looks glitched, try to change the video player configuration to use the *NV12* format or switch to another player (like PotPlayer or OBS). If the colors look wrong, set color range to full and color space to BT.601 (Rec. 601).
 
 If you use Windows 10 you might have to change the Camera access permissions on the Privacy Settings.
 
