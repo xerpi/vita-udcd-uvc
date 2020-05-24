@@ -10,7 +10,7 @@
 
 static int console_x = 16;
 static int console_y = 16;
-static SceKernelLwMutexWork mutex;
+static int64_t mutex[8];
 
 int console_init()
 {
