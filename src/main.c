@@ -85,9 +85,12 @@ static SceUID uvc_event_flag_id;
 static int uvc_thread_run;
 static int stream;
 
-static SceUID uvc_frame_buffer_uid;
+static SceUID uvc_frame_buffer_uid = -1;
 static struct uvc_frame *uvc_frame_buffer_addr;
 SceUID uvc_frame_req_evflag;
+
+static int uvc_frame_init(unsigned int size);
+static int uvc_frame_term();
 
 #if defined(DISPLAY_OFF_OLED) || defined(DISPLAY_OFF_LCD)
 static int prev_brightness;
@@ -667,8 +670,21 @@ static int send_frame(void)
 	case FORMAT_INDEX_UNCOMPRESSED_NV12: {
 		const struct UVC_FRAME_UNCOMPRESSED(2) *frames =
 			video_streaming_descriptors.frames_uncompressed_nv12;
-		int dst_width = frames[uvc_probe_control_setting.bFrameIndex - 1].wWidth;
-		int dst_height = frames[uvc_probe_control_setting.bFrameIndex - 1].wHeight;
+		int cur_frame_index = uvc_probe_control_setting.bFrameIndex;
+		int dst_width = frames[cur_frame_index - 1].wWidth;
+		int dst_height = frames[cur_frame_index - 1].wHeight;
+
+		static int last_frame_index = 0;
+		if (uvc_frame_buffer_uid < 0 || cur_frame_index != last_frame_index) {
+			uvc_frame_term();
+			ret = uvc_frame_init(VIDEO_FRAME_SIZE_NV12(dst_width, dst_height));
+			if (ret < 0) {
+				LOG("Error allocating the UVC frame (0x%08X)\n", ret);
+				return ret;
+			} else {
+				last_frame_index = cur_frame_index;
+			}
+		}
 
 		ret = convert_and_send_frame_nv12(fid, &fb_info, dst_width, dst_height);
 		if (ret < 0) {
@@ -740,12 +756,14 @@ static int uvc_thread(SceSize args, void *argp)
 	while (uvc_thread_run) {
 		unsigned int out_bits;
 
-		ksceKernelWaitEventFlagCB(uvc_event_flag_id, 1,
-			      SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
-			      &out_bits, NULL);
+		int ret = ksceKernelWaitEventFlagCB(uvc_event_flag_id, 1,
+			SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT,
+			&out_bits, (SceUInt32[]){1000000});
 
-		if (stream)
+		if (ret == 0 && stream)
 			send_frame();
+		else if (ret == 0x80028005) /* SCE_KERNEL_ERROR_WAIT_TIMEOUT */
+			uvc_frame_term();
 	}
 
 	ksceDisplayUnregisterVblankStartCallback(display_vblank_cb_uid);
@@ -790,6 +808,7 @@ static int uvc_frame_init(unsigned int size)
 	if (ret < 0) {
 		LOG("Error getting CSC desr memory addr: 0x%08X\n", ret);
 		ksceKernelFreeMemBlock(uvc_frame_buffer_uid);
+		uvc_frame_buffer_uid = -1;
 		return ret;
 	}
 
@@ -851,12 +870,6 @@ int uvc_start(void)
 		goto err_activate;
 	}
 
-	ret = uvc_frame_init(MAX_UVC_PAYLOAD_TRANSFER_SIZE);
-	if (ret < 0) {
-		LOG("Error allocating the UVC frame (0x%08X)\n", ret);
-		goto err_uvc_frame_init;
-	}
-
 	ret = uvc_frame_req_init();
 	if (ret < 0) {
 		LOG("Error allocating USB request (0x%08X)\n", ret);
@@ -872,8 +885,6 @@ int uvc_start(void)
 	return 0;
 
 err_alloc_uvc_frame_req:
-	uvc_frame_term();
-err_uvc_frame_init:
 	ksceUdcdDeactivate();
 err_activate:
 	ksceUdcdStop(UVC_DRIVER_NAME, 0, NULL);
