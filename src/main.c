@@ -39,6 +39,8 @@
 #define UVC_PAYLOAD_SIZE(frame_size)	(UVC_PAYLOAD_HEADER_SIZE + (frame_size))
 #define MAX_UVC_PAYLOAD_TRANSFER_SIZE	UVC_PAYLOAD_SIZE(MAX_UVC_VIDEO_FRAME_SIZE)
 
+#define SCE_DISPLAY_PIXELFORMAT_BGRA5551 0x50000000
+
 int ksceOledDisplayOn();
 int ksceOledDisplayOff();
 int ksceOledGetBrightness();
@@ -48,6 +50,24 @@ int ksceLcdDisplayOn();
 int ksceLcdDisplayOff();
 int ksceLcdGetBrightness();
 int ksceLcdSetBrightness(int brightness);
+
+/* Copied from DolceSDK */
+typedef struct SceIftuPlaneState_updated {
+	SceIftuFrameBuf fb;
+	unsigned int unk20;             /* not observed to be non-zero */
+	unsigned int unk24;             /* not observed to be non-zero */
+	unsigned int unk28;             /* not observed to be non-zero */
+	unsigned int src_w;             /* inverse scaling factor in 16.16 fixed point, greater than or equal to 0.25 */
+	unsigned int src_h;             /* inverse scaling factor in 16.16 fixed point, greater than or equal to 0.25 */
+	unsigned int dst_x;             /* offset into the destination buffer */
+	unsigned int dst_y;             /* offset into the destination buffer */
+	unsigned int src_x;             /* offset into the source buffer in 8.8 fixed point, strictly less than 4.0 */
+	unsigned int src_y;             /* offset into the source buffer in 8.8 fixed point, strictly less than 4.0 */
+	unsigned int crop_top;
+	unsigned int crop_bot;
+	unsigned int crop_left;
+	unsigned int crop_right;
+} SceIftuPlaneState_updated;
 
 struct uvc_frame {
 	unsigned char header[UVC_PAYLOAD_HEADER_SIZE];
@@ -532,7 +552,7 @@ static inline unsigned int display_to_iftu_pixelformat(unsigned int fmt)
 	case SCE_DISPLAY_PIXELFORMAT_A8B8G8R8:
 	default:
 		return SCE_IFTU_PIXELFORMAT_BGRX8888;
-	case 0x50000000:
+	case SCE_DISPLAY_PIXELFORMAT_BGRA5551:
 		return SCE_IFTU_PIXELFORMAT_BGRA5551;
 	}
 }
@@ -543,7 +563,7 @@ static inline unsigned int display_pixelformat_bpp(unsigned int fmt)
 	case SCE_DISPLAY_PIXELFORMAT_A8B8G8R8:
 	default:
 		return 4;
-	case 0x50000000:
+	case SCE_DISPLAY_PIXELFORMAT_BGRA5551:
 		return 2;
 	}
 }
@@ -558,6 +578,7 @@ static int frame_convert_to_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
 	unsigned int src_pitch = fb_info->framebuf.pitch;
 	unsigned int src_height = fb_info->framebuf.height;
 	unsigned int src_pixelfmt = fb_info->framebuf.pixelformat;
+	unsigned int src_pixelfmt_bpp = display_pixelformat_bpp(src_pixelfmt);
 	unsigned char *uvc_frame_data = uvc_frame_buffer_addr->data;
 
 	static SceIftuCscParams RGB_to_YCbCr_JPEG_csc_params = {
@@ -585,28 +606,27 @@ static int frame_convert_to_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
 	params.alpha = 0xFF;
 	params.unk24 = 0;
 
-	SceIftuPlaneState src;
+	SceIftuPlaneState_updated src;
 	memset(&src, 0, sizeof(src));
 	src.fb.pixelformat = display_to_iftu_pixelformat(src_pixelfmt);
 	src.fb.width = src_width_aligned;
 	src.fb.height = src_height;
-	src.fb.leftover_stride = (src_pitch - src_width_aligned) *
-				 display_pixelformat_bpp(src_pixelfmt);
+	src.fb.leftover_stride = (src_pitch - src_width_aligned) * src_pixelfmt_bpp;
 	src.fb.leftover_align = 0;
 	src.fb.paddr0 = src_paddr;
 	src.unk20 = 0;
-	src.src_x = 0;
-	src.src_y = 0;
+	src.unk24 = 0;
+	src.unk28 = 0;
 	src.src_w = (src_width * 0x10000) / dst_width;
 	src.src_h = (src_height * 0x10000) / dst_height;
 	src.dst_x = 0;
 	src.dst_y = 0;
-	src.dst_w = 0;
-	src.dst_h = 0;
-	src.vtop_padding = 0;
-	src.vbot_padding = 0;
-	src.hleft_padding = 0;
-	src.hright_padding = 0;
+	src.src_x = 0;
+	src.src_y = 0;
+	src.crop_top = 0;
+	src.crop_bot = 0;
+	src.crop_left = 0;
+	src.crop_right = 0;
 
 	SceIftuFrameBuf dst;
 	memset(&dst, 0, sizeof(dst));
@@ -618,7 +638,7 @@ static int frame_convert_to_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
 	dst.paddr0 = dst_paddr;
 	dst.paddr1 = dst_paddr + dst_width * dst_height;
 
-	return ksceIftuCsc(&dst, &src, &params);
+	return ksceIftuCsc(&dst, (SceIftuPlaneState *)&src, &params);
 }
 
 static int convert_and_send_frame_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
