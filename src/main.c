@@ -35,7 +35,7 @@
 
 #define MAX_UVC_VIDEO_FRAME_SIZE	VIDEO_FRAME_SIZE_NV12(1280, 720)
 
-#define UVC_PAYLOAD_HEADER_SIZE		16
+#define UVC_PAYLOAD_HEADER_SIZE		12
 #define UVC_PAYLOAD_SIZE(frame_size)	(UVC_PAYLOAD_HEADER_SIZE + (frame_size))
 #define MAX_UVC_PAYLOAD_TRANSFER_SIZE	UVC_PAYLOAD_SIZE(MAX_UVC_VIDEO_FRAME_SIZE)
 
@@ -69,7 +69,13 @@ typedef struct SceIftuPlaneState_updated {
 	unsigned int crop_right;
 } SceIftuPlaneState_updated;
 
+/*
+ * We want the data field (raw pixel data) to be aligned to 16B for the IFTU CSC to work properly.
+ * It seems the USB controller is fine with data aligned to 4B (starts reading from header field).
+ */
+#define UVC_FRAME_PADDING_SIZE (16 - UVC_PAYLOAD_HEADER_SIZE)
 struct uvc_frame {
+	unsigned char padding[UVC_FRAME_PADDING_SIZE];
 	unsigned char header[UVC_PAYLOAD_HEADER_SIZE];
 	unsigned char data[];
 } __attribute__((packed));
@@ -534,7 +540,7 @@ static unsigned int uvc_frame_transfer(struct uvc_frame *frame,
 	if (eof)
 		frame->header[1] |= UVC_STREAM_EOF;
 
-	ret = uvc_frame_req_submit_phycont(frame, frame_size);
+	ret = uvc_frame_req_submit_phycont(frame->header, frame_size);
 	if (ret < 0) {
 		LOG("Error sending frame: 0x%08X\n", ret);
 		return ret;
@@ -697,7 +703,7 @@ static int send_frame(void)
 		static int last_frame_index = 0;
 		if (uvc_frame_buffer_uid < 0 || cur_frame_index != last_frame_index) {
 			uvc_frame_term();
-			ret = uvc_frame_init(VIDEO_FRAME_SIZE_NV12(dst_width, dst_height));
+			ret = uvc_frame_init(UVC_FRAME_PADDING_SIZE + VIDEO_FRAME_SIZE_NV12(dst_width, dst_height));
 			if (ret < 0) {
 				LOG("Error allocating the UVC frame (0x%08X)\n", ret);
 				return ret;
