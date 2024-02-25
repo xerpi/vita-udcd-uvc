@@ -140,8 +140,6 @@ static int usb_ep0_req_send(const void *data, unsigned int size)
 		.physicalAddress = NULL
 	};
 
-	ksceKernelCpuDcacheAndL2WritebackRange(data, size);
-
 	return ksceUdcdReqSend(&req);
 }
 
@@ -167,7 +165,7 @@ static int usb_ep0_enqueue_recv_for_req(const SceUdcdEP0DeviceRequest *ep0_req)
 		.physicalAddress = NULL
 	};
 
-	ksceKernelCpuDcacheAndL2WritebackInvalidateRange(pending_recv.buffer,
+	ksceKernelDcacheInvalidateRange(pending_recv.buffer,
 		pending_recv.ep0_req.wLength);
 
 	return ksceUdcdReqRecv(&req);
@@ -312,6 +310,8 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 			LOG("Probe GET_CUR, bFormatIndex: %d, bmFramingInfo: %x\n",
 			    uvc_probe_control_setting.bFormatIndex,
 			    uvc_probe_control_setting.bmFramingInfo);
+			ksceKernelDcacheCleanRange(&uvc_probe_control_setting,
+					 sizeof(uvc_probe_control_setting));
 			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
@@ -327,6 +327,8 @@ static void uvc_handle_video_streaming_req(const SceUdcdEP0DeviceRequest *req)
 		case UVC_GET_LEN:
 			break;
 		case UVC_GET_CUR:
+			ksceKernelDcacheCleanRange(&uvc_probe_control_setting,
+					 sizeof(uvc_probe_control_setting));
 			usb_ep0_req_send(&uvc_probe_control_setting,
 					 sizeof(uvc_probe_control_setting));
 			break;
@@ -958,7 +960,7 @@ static int SceUdcd_sub_01E1128C_hook_func(const SceUdcdConfigDescriptor *config_
 
 		dst->wTotalLength += sizeof(interface_association_descriptor);
 
-		ksceKernelCpuDcacheAndL2WritebackRange(desc_data, dst->wTotalLength);
+		ksceKernelDcacheCleanRange(desc_data, dst->wTotalLength);
 	}
 
 	return ret;
