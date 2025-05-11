@@ -604,7 +604,7 @@ static int frame_convert_to_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
 	SceIftuConvParams params;
 	memset(&params, 0, sizeof(params));
 	params.size = sizeof(params);
-	params.unk04 = 1;
+	params.unk04 = 0;
 	params.csc_params1 = &RGB_to_YCbCr_JPEG_csc_params;
 	params.csc_params2 = NULL;
 	params.csc_control = 1;
@@ -627,8 +627,8 @@ static int frame_convert_to_nv12(int fid, const SceDisplayFrameBufInfo *fb_info,
 	src.unk28 = 0;
 	src.src_w = (src_width * 0x10000) / dst_width;
 	src.src_h = (src_height * 0x10000) / dst_height;
-	src.dst_x = 0;
-	src.dst_y = 0;
+	src.dst_x = 245760/512 - src_width/512;
+	src.dst_y = 139264/512 - src_height/512;
 	src.src_x = 0;
 	src.src_y = 0;
 	src.crop_top = 0;
